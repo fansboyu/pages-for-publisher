@@ -10,6 +10,11 @@ const host = ref<HTMLTextAreaElement | null>(null);
 let instance: Jodit | null = null;
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:3003";
 
+function toggleHtmlSource() {
+  // 使用本地 textarea 源码编辑器，不依赖境外 CDN 加载 Ace。
+  instance?.toggleMode();
+}
+
 onMounted(() => {
   if (!host.value) return;
 
@@ -20,6 +25,7 @@ onMounted(() => {
     toolbarSticky: false,
     language: "zh_cn",
     spellcheck: true,
+    sourceEditor: "area",
     showCharsCounter: false,
     showWordsCounter: false,
     showXPathInStatusbar: false,
@@ -77,5 +83,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="rich-editor-wrap"><textarea ref="host" /></div>
+  <div class="rich-editor-wrap">
+    <div class="html-source-guide">
+      <div>
+        <strong>HTML 源码编辑</strong>
+        <span>可直接粘贴带 <code>style</code> 的完整 HTML；切回可视化模式即可预览排版。</span>
+      </div>
+      <button type="button" class="html-source-button" @click="toggleHtmlSource">
+        &lt;/&gt; 切换 HTML 源码模式
+      </button>
+    </div>
+    <textarea ref="host" />
+  </div>
 </template>
