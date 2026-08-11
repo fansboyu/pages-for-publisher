@@ -40,6 +40,8 @@ onMounted(() => {
       source: {
         icon: "source",
         tooltip: "HTML 源码 / 可视化预览",
+        // 位掩码 1 + 2：可视化和源码模式下都显示且可点击。
+        mode: (Jodit as any).MODE_WYSIWYG + (Jodit as any).MODE_SOURCE,
         exec: (editor: Jodit) => {
           editor.setMode(
             editor.getRealMode() === (Jodit as any).MODE_SOURCE
