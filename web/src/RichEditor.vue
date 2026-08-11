@@ -21,6 +21,7 @@ onMounted(() => {
     language: "zh_cn",
     spellcheck: true,
     sourceEditor: "area",
+    useSplitMode: false,
     showCharsCounter: false,
     showWordsCounter: false,
     showXPathInStatusbar: false,
@@ -34,6 +35,20 @@ onMounted(() => {
         (item: any) => !(typeof item === "object" && item?.group === "source"),
       ),
     ],
+    controls: {
+      // 强制只在“可视化 / 源码”两种状态间切换，不进入分屏模式。
+      source: {
+        icon: "source",
+        tooltip: "HTML 源码 / 可视化预览",
+        exec: (editor: Jodit) => {
+          editor.setMode(
+            editor.getRealMode() === (Jodit as any).MODE_SOURCE
+              ? (Jodit as any).MODE_WYSIWYG
+              : (Jodit as any).MODE_SOURCE,
+          );
+        },
+      },
+    },
     cleanHTML: {
       // 保留外部内容系统带来的 section/div/span 和内嵌 style，
       // 同时仍移除事件属性与 javascript: 链接。
