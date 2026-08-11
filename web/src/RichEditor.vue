@@ -43,11 +43,16 @@ onMounted(() => {
         // 位掩码 1 + 2：可视化和源码模式下都显示且可点击。
         mode: (Jodit as any).MODE_WYSIWYG + (Jodit as any).MODE_SOURCE,
         exec: (editor: Jodit) => {
+          const enterSource =
+            editor.getRealMode() !== (Jodit as any).MODE_SOURCE;
           editor.setMode(
-            editor.getRealMode() === (Jodit as any).MODE_SOURCE
-              ? (Jodit as any).MODE_WYSIWYG
-              : (Jodit as any).MODE_SOURCE,
+            enterSource
+              ? (Jodit as any).MODE_SOURCE
+              : (Jodit as any).MODE_WYSIWYG,
           );
+          // Jodit 的源码插件仅在处于源码模式时同步镜像内容。
+          // 因此切换完成后触发一次 change，把可视化 HTML 写入源码编辑区。
+          if (enterSource) editor.events.fire("change");
         },
       },
     },
