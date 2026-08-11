@@ -1,15 +1,7 @@
 .rich-editor-wrap{width:100%}
-.html-source-guide{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border:1px solid #c9e7dc;border-bottom:0;border-radius:8px 8px 0 0;background:#f0faf6;color:#426257}
-.html-source-guide strong{display:block;color:#0d805b;font-size:14px;margin-bottom:3px}
-.html-source-guide span{font-size:12px}
-.html-source-guide code{padding:1px 4px;border-radius:3px;background:#dcefe8;color:#0d805b}
-.html-source-button{flex:0 0 auto;border:0;border-radius:6px;padding:9px 12px;background:#0d9b71;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
-.html-source-button:hover{background:#087d59}
 .rich-editor-wrap .jodit-container{border:1px solid #d9e3ec;border-radius:8px;overflow:hidden;background:#fff}
-.html-source-guide+.jodit-container{border-radius:0 0 8px 8px}
 .rich-editor-wrap .jodit-toolbar__box{background:#f7fafc;border-bottom:1px solid #e2eaf1}
 .rich-editor-wrap .jodit-wysiwyg{padding:18px 20px;line-height:1.85;color:#2c3e50}
 .rich-editor-wrap .jodit-wysiwyg img{max-width:100%;height:auto;border-radius:7px}
 .rich-editor-wrap .jodit-status-bar{border-top:1px solid #e2eaf1}
-@media (max-width:720px){.html-source-guide{align-items:flex-start;flex-direction:column}.html-source-button{width:100%}}
 .editor-tip{margin:8px 0 0;font-size:12px;color:#8493a0}
