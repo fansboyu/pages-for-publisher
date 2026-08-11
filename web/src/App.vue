@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   Document,
@@ -10,11 +10,7 @@ import {
   UserFilled,
   User,
 } from "@element-plus/icons-vue";
-import {
-  Editor as WangEditor,
-  Toolbar as WangToolbar,
-} from "@wangeditor/editor-for-vue";
-import "@wangeditor/editor/dist/css/style.css";
+import RichEditor from "./RichEditor.vue";
 import {
   api,
   auth,
@@ -75,33 +71,6 @@ const account = ref<UserType | null>(null),
     owner_password: "",
     owner_display_name: "",
   });
-const wangEditorRef = shallowRef<any>();
-const wangToolbarConfig: any = {};
-const wangEditorConfig: any = {
-  placeholder: "请输入文章正文内容，支持粘贴和富文本排版",
-  MENU_CONF: {
-    uploadImage: {
-      async customUpload(
-        file: File,
-        insertFn: (url: string, alt?: string, href?: string) => void,
-      ) {
-        busy.value = true;
-        try {
-          const result = await api.uploadImage(file);
-          insertFn(result.url, file.name, result.url);
-          ElMessage.success("图片已插入正文");
-        } catch (e) {
-          ElMessage.error(e instanceof Error ? e.message : "图片上传失败");
-        } finally {
-          busy.value = false;
-        }
-      },
-    },
-  },
-};
-function handleWangEditorCreated(instance: any) {
-  wangEditorRef.value = instance;
-}
 const admin = computed(() => account.value?.role === "platform_admin");
 const selectableSites = computed(() =>
   admin.value && clientFilter.value
@@ -346,7 +315,6 @@ function logout() {
   selected.value = null;
   sites.value = [];
 }
-onBeforeUnmount(() => wangEditorRef.value?.destroy());
 onMounted(restore);
 </script>
 <template>
@@ -727,19 +695,7 @@ onMounted(restore);
           :rows="2"
           placeholder="用于列表与搜索摘要" /></el-form-item
       ><el-form-item label="正文内容"
-        ><div class="wangeditor-wrap">
-          <WangToolbar
-            class="wangeditor-toolbar"
-            :editor="wangEditorRef"
-            :default-config="wangToolbarConfig"
-            mode="default" />
-          <WangEditor
-            v-model="article.content_html"
-            class="wangeditor-content"
-            :default-config="wangEditorConfig"
-            mode="default"
-            @on-created="handleWangEditorCreated" />
-        </div>
+        ><RichEditor v-model="article.content_html" />
         <p class="editor-tip">
           支持标题、字体样式、颜色、列表、链接、图片、视频和表格；正文图片会自动上传到发布中心。
         </p></el-form-item
