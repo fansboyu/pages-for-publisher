@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_DB: publisher
+      POSTGRES_USER: publisher
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set-in-.env}
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U publisher -d publisher"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+  redis:
+    image: docker.m.daocloud.io/library/redis:7-alpine
+    healthcheck:
+      test: ["CMD","redis-cli","ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    build: .
+    env_file: .env
+    ports: ["127.0.0.1:3003:3000"]
+    volumes: ["../uploads:/data/uploads"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  worker:
+    build: .
+    command: ["node","dist/worker-main.js"]
+    env_file: .env
+    environment:
+      RUN_WORKER: "true"
+      HTTPS_PROXY: ${GIT_PROXY_URL:?set-in-.env}
+      https_proxy: ${GIT_PROXY_URL:?set-in-.env}
+      HTTP_PROXY: ${GIT_PROXY_URL:?set-in-.env}
+      http_proxy: ${GIT_PROXY_URL:?set-in-.env}
+      NO_PROXY: localhost,127.0.0.1,postgres,redis
+      no_proxy: localhost,127.0.0.1,postgres,redis
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+volumes:
+  postgres-data: {}

@@ -1,0 +1,31 @@
+# 依赖与构建产物
+node_modules/
+api/node_modules/
+web/node_modules/
+dist/
+api/dist/
+web/dist/
+*.tsbuildinfo
+
+# 运行时数据、日志和本地测试文件
+.work/
+work/
+uploads/
+data/
+logs/
+*.log
+.local-e2e-fixture*/
+
+# 敏感环境变量：仅保留可提交的示例文件
+.env
+.env.*
+api/.env
+api/.env.*
+web/.env.local
+web/.env.*.local
+!.env.example
+!api/.env.example
+!web/.env.example
+
+# 本地备份
+*.bak

@@ -1,0 +1,7 @@
+.wangeditor-wrap{width:100%;overflow:hidden;border:1px solid #d9e3ec;border-radius:8px;background:#fff}
+.wangeditor-toolbar{border-bottom:1px solid #e2eaf1;background:#f7fafc}
+.wangeditor-content{height:420px;overflow-y:auto}
+.wangeditor-content .w-e-text-container{min-height:420px!important}
+.wangeditor-content .w-e-text-container [data-slate-editor]{padding:18px 20px;line-height:1.85;color:#2c3e50}
+.wangeditor-content img{max-width:100%;height:auto;border-radius:7px}
+.editor-tip{margin:8px 0 0;font-size:12px;color:#8493a0}
