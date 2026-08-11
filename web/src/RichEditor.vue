@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Jodit } from "jodit";
+import "jodit/esm/plugins/source/source.js";
 import "jodit/es2021/jodit.min.css";
 
 const props = defineProps<{ modelValue: string }>();
@@ -35,27 +36,6 @@ onMounted(() => {
         (item: any) => !(typeof item === "object" && item?.group === "source"),
       ),
     ],
-    controls: {
-      // 强制只在“可视化 / 源码”两种状态间切换，不进入分屏模式。
-      source: {
-        icon: "source",
-        tooltip: "HTML 源码 / 可视化预览",
-        // 位掩码 1 + 2：可视化和源码模式下都显示且可点击。
-        mode: (Jodit as any).MODE_WYSIWYG + (Jodit as any).MODE_SOURCE,
-        exec: (editor: Jodit) => {
-          const enterSource =
-            editor.getRealMode() !== (Jodit as any).MODE_SOURCE;
-          editor.setMode(
-            enterSource
-              ? (Jodit as any).MODE_SOURCE
-              : (Jodit as any).MODE_WYSIWYG,
-          );
-          // Jodit 的源码插件仅在处于源码模式时同步镜像内容。
-          // 因此切换完成后触发一次 change，把可视化 HTML 写入源码编辑区。
-          if (enterSource) editor.events.fire("change");
-        },
-      },
-    },
     cleanHTML: {
       // 保留外部内容系统带来的 section/div/span 和内嵌 style，
       // 同时仍移除事件属性与 javascript: 链接。
