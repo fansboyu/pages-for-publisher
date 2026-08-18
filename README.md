@@ -21,6 +21,10 @@ web/    Vue 3 + Element Plus 管理端与客户文章后台
 docs/   架构和部署说明
 ```
 
+## 官网模板接入
+
+新官网按照统一的 `publisher.config.json + templates/article.html` 协议接入，不需要为每个官网修改 Worker。目录规范、可用占位符和 Cloudflare Pages 配置见：[官网模板接入规范](docs/官网模板接入规范.md)。
+
 ## 启动顺序
 
 1. 复制 `api/.env.example` 为 `api/.env`，填写数据库、JWT 与 GitHub Token。
