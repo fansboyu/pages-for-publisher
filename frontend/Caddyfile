@@ -1,0 +1,26 @@
+{
+    admin off
+    auto_https off
+}
+
+:8080 {
+    encode gzip
+    header X-Content-Type-Options nosniff
+
+    handle /frontend-health {
+        respond "frontend ok" 200
+    }
+
+    # Preserve the path, query, Host, Cookie and Authorization headers.
+    # Preview and local media remain behind API authorization/storage logic.
+    @backend path /api/* /agent/v1/* /webhooks/v1/* /preview/* /objects/* /media/* /health
+    handle @backend {
+        reverse_proxy {$API_UPSTREAM}
+    }
+
+    handle {
+        root * /srv
+        header Cache-Control "no-cache"
+        file_server
+    }
+}

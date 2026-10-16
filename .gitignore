@@ -29,3 +29,15 @@ web/.env.*.local
 
 # 本地备份
 *.bak
+
+# v1.2 control plane / customer Agent runtime
+storage/
+tools/
+agent.json
+!.env.pilot.example
+*.pem
+*.key
+*.sqlite
+*.sqlite-*
+*.dump
+*.tar.gz

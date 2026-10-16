@@ -1,0 +1,1 @@
+{"version":1,"homePage":"index.html","newsListPage":"news/index.html","articleTemplate":"templates/article.html","articleCardTemplate":"templates/article-card.html","articleOutput":"news/{{slug}}/index.html","assetsDirectory":"assets","articleCardsPlaceholder":"{{article_cards}}"}

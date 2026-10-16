@@ -1,0 +1,5 @@
+{
+    admin 127.0.0.1:2019
+}
+# 首次启动后由 Agent 管理这一专用 Caddy 实例的整份配置。
+# Caddy 服务应使用 caddy run --resume，以恢复自动保存的最后有效配置。

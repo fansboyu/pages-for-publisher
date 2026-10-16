@@ -1,0 +1,39 @@
+import { promises as fs } from 'node:fs';
+import { resolve,join,dirname } from 'node:path';
+import OSS from 'ali-oss';
+import sharp from 'sharp';
+import { createHash,randomBytes } from 'node:crypto';
+
+export const sha256=data=>createHash('sha256').update(data).digest('hex');
+export function createStorage(root){
+ const driver=process.env.STORAGE_DRIVER||'local';
+ if(!['local','oss'].includes(driver))throw Error('STORAGE_DRIVER must be local or oss');
+ let mediaClient,archiveClient;
+ const publicBase=(process.env.MEDIA_PUBLIC_BASE_URL||'').replace(/\/$/,'');
+ if(driver==='oss'){
+  for(const key of ['OSS_REGION','OSS_MEDIA_BUCKET','OSS_ARCHIVE_BUCKET','MEDIA_PUBLIC_BASE_URL','OSS_ACCESS_KEY_ID','OSS_ACCESS_KEY_SECRET'])if(!process.env[key])throw Error(`Missing ${key}`);
+  if(!publicBase.startsWith('https://'))throw Error('OSS 图片域名必须使用 HTTPS');
+  if(process.env.OSS_MEDIA_BUCKET===process.env.OSS_ARCHIVE_BUCKET)throw Error('素材与发布归档必须使用不同 Bucket');
+  const options={region:process.env.OSS_REGION,accessKeyId:process.env.OSS_ACCESS_KEY_ID,accessKeySecret:process.env.OSS_ACCESS_KEY_SECRET,secure:true,...(process.env.OSS_STS_TOKEN?{stsToken:process.env.OSS_STS_TOKEN}:{})};
+  mediaClient=new OSS({...options,bucket:process.env.OSS_MEDIA_BUCKET});archiveClient=new OSS({...options,bucket:process.env.OSS_ARCHIVE_BUCKET});
+ }
+ function localPath(key){const base=resolve(root,'objects'),path=resolve(base,key);if(!path.startsWith(base+'/')&&!path.startsWith(base+'\\'))throw Error('非法存储路径');return path}
+ return {
+  driver,
+  info(){return {driver,mediaBase:publicBase||'/objects/media/',mediaBucket:driver==='oss'?process.env.OSS_MEDIA_BUCKET:null,archiveBucket:driver==='oss'?process.env.OSS_ARCHIVE_BUCKET:null}},
+  async image(site,b){
+   const m=String(b.data||'').match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);if(!m)throw Error('仅支持 PNG、JPEG、WebP');
+   const original=Buffer.from(m[2],'base64');if(original.length>5*1024*1024)throw Error('原图不能超过 5MB');
+   const image=sharp(original,{limitInputPixels:40000000}).rotate().resize({width:1920,height:1920,fit:'inside',withoutEnlargement:true});
+   const {data,info}=await image.webp({quality:82}).toBuffer({resolveWithObject:true});
+   const key=`media/sites/${site}/${sha256(data)}.webp`;
+   if(driver==='oss')await mediaClient.put(key,data,{headers:{'Content-Type':'image/webp','Cache-Control':'public, max-age=31536000, immutable'}});
+   else {const path=localPath(key);await fs.mkdir(dirname(path),{recursive:true});await fs.writeFile(path,data)}
+   return {id:randomBytes(12).toString('hex'),site,name:String(b.name||'图片').slice(0,200),key,url:driver==='oss'?`${publicBase}/${key}`:`/objects/${key}`,size:data.length,originalSize:original.length,width:info.width,height:info.height,driver};
+  },
+  async putArchive(key,data){if(driver==='oss')await archiveClient.put(key,data,{headers:{'Content-Type':'application/gzip'}});else{const path=localPath(key);await fs.mkdir(dirname(path),{recursive:true});await fs.writeFile(path,data)}return key},
+  async readArchive(key){if(!key.startsWith('archives/'))throw Error('非法归档对象');if(driver==='oss')return (await archiveClient.get(key)).content;return fs.readFile(localPath(key))},
+  archiveDownloadUrl(key){if(!key.startsWith('archives/'))throw Error('非法归档对象');return driver==='oss'?archiveClient.signatureUrl(key,{expires:3600,method:'GET'}):null},
+  localPublicFile(key){if(!key.startsWith('media/'))throw Error('禁止读取私有发布归档');return localPath(key)}
+ };
+}

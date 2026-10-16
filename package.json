@@ -1,0 +1,35 @@
+{
+  "name": "website-control-local",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node pilot/server.mjs",
+    "test": "node tests/pilot.mjs",
+    "dev": "node scripts/pilot-infra.mjs && node scripts/pilot-local.mjs",
+    "test:phase1": "node tests/phase1.mjs",
+    "worker": "node pilot/worker.mjs",
+    "db:migrate": "node pilot/db.mjs",
+    "db:import-legacy": "node scripts/import-legacy.mjs",
+    "test:pilot": "node tests/pilot.mjs",
+    "test:frontend": "node tests/frontend.mjs",
+    "test:multi-site": "node tests/multi-site.mjs",
+    "frontend:local": "docker compose -f compose.frontend-local.yml up -d --build",
+    "dev:legacy": "node scripts/local.mjs",
+    "start:legacy": "node server.mjs",
+    "infra": "node scripts/pilot-infra.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "ali-oss": "^6.23.0",
+    "bullmq": "^6.3.15",
+    "ioredis": "^6.0.0",
+    "jodit": "^4.13.18",
+    "pg": "^8.23.1",
+    "sanitize-html": "^2.18.1",
+    "sharp": "^0.35.5",
+    "tar-stream": "^3.2.2"
+  }
+}

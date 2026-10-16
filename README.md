@@ -1,35 +1,23 @@
-# 多租户静态发布中心
+# 统一网站管理平台 v1.2
 
-面向多个客户静态官网的统一发布平台。平台管理员管理客户、GitHub 仓库、模板和 Cloudflare 配置；客户负责人登录后只管理自己公司名下的网站文章。
+当前版本 `1.2.0`，Git 标签 `v1.2`。采用一台客户服务器一个Agent＋一个专用Caddy；每个网站独立目录、域名和发布版本，总控管理绑定与发布。客户网站运行不依赖GitHub在线。
 
-## 两种角色
+仓库中若存在 `api/`、`web/`，它们是旧版 NestJS/Vue + GitHub/Cloudflare 发布链路，保留作历史参考，不是v1.2入口。不要把旧版的数据库、环境变量和角色体系与根目录新版混用。新版总控部署入口为根目录 `compose.production.yml`。参阅[多站点部署与v1.2验收](docs/v1.2多站点部署与验收.md)。
 
-| 角色 | 可访问内容 |
-| --- | --- |
-| `platform_admin` | 全部客户、全部站点、创建客户负责人、GitHub/Cloudflare 配置、任务 |
-| `client_owner` | 自己客户名下全部网站、文章发布/编辑/删除、发布任务 |
+采用 Node.js 24、PostgreSQL **18.6**、Redis/BullMQ 独立构建 Worker、Caddy 和部署 Agent。PostgreSQL版本已按2026-10-16官方稳定版本核实，拒绝使用RC/beta版本。
 
-## 数据流
+生产部署已拆成独立前端、API、Worker、PostgreSQL、Redis五个常驻容器，另有一次性数据库迁移任务。前端内置Jodit资源，不持有数据库/OSS密钥，通过同源代理连接API。见 [前后端容器与依赖](docs/前后端容器与依赖.md)。本地原开发入口保持不变，启动API后可执行 `npm run frontend:local`，在 http://127.0.0.1:4419 体验独立前端容器。
 
-`客户后台 / 外部 Webhook → API → PostgreSQL → Redis 队列 → Worker → GitHub publish → Cloudflare Pages`
+安装依赖后执行 `npm run dev`，启动本项目Docker数据库与Redis，然后启动API、Worker、Agent和真实Caddy。需要Docker正在运行，以及 tools/caddy.exe（Linux可用CADDY_BIN）。
 
-## 目录
+总控 http://127.0.0.1:4418，Caddy体验网站 http://127.0.0.1:4420/sites/s1/。
 
-```text
-api/    NestJS API 和构建 Worker
-web/    Vue 3 + Element Plus 管理端与客户文章后台
-docs/   架构和部署说明
-```
+演示账号：admin / Admin123!；agency / Agency123!；partner / Partner123!。
 
-## 官网模板接入
+支持网站创建、代理商范围隔离、官网标题/介绍/电话编辑、Jodit富文本、图片WebP压缩、GEO幂等API、静态网站生成、版本归档、Agent部署与回滚、服务器心跳和任务记录。素材与私有发布包支持本地目录或阿里云OSS存储。
 
-新官网按照统一的 `publisher.config.json + templates/article.html` 协议接入，不需要为每个官网修改 Worker。目录规范、可用占位符和 Cloudflare Pages 配置见：[官网模板接入规范](docs/官网模板接入规范.md)。
+内容、账号与任务分表存储在PostgreSQL；图片与归档支持OSS；开发时本地对象目录位于storage/pilot。模板导入后冻结为独立版本，tar.gz发布包包含固定页面、文章及全部静态资源。默认压缩上限128MB、展开512MB、20000文件，可配置。
 
-## 启动顺序
+旧SQLite版与原数据仍保留，可使用 `npm run dev:legacy`。只读迁移工具为 `scripts/import-legacy.mjs`，目标必须是空PostgreSQL数据库，禁止覆盖已有数据。
 
-1. 复制 `api/.env.example` 为 `api/.env`，填写数据库、JWT 与 GitHub Token。
-2. 启动 API、Worker、PostgreSQL、Redis。
-3. 启动或构建 `web/`，设置 `VITE_API_BASE_URL` 指向 API 域名。
-4. 用 `POST /admin/v1/bootstrap` 创建唯一的平台管理员。
-
-首次部署后，由平台管理员创建客户、客户负责人和客户站点；客户负责人登录后即可发布、编辑、删除文章。
+执行 `npm test` 在隔离数据库、随机端口和独立队列中进行正式试点链路验证；`npm run test:multi-site` 验证真实Caddy按域名分流、单站更新与回滚。测试默认使用仓库内置模板，不依赖其他客户目录；可通过TEST_CUSTOMER_TEMPLATE指向优佳家政模板再次验收。详见 [正式试点版架构与运行](docs/正式试点版架构与运行.md)。提供生产Compose、显式迁移、OSS配置及Agent服务示例；真实OSS、ECS和公网HTTPS需在配置云资源后验收。

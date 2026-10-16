@@ -1,0 +1,5 @@
+# Host Caddy handles public HTTPS; the frontend container handles HTTP routing.
+# Replace the domain and make its DNS point at the control server first.
+control.example.cn {
+    reverse_proxy 127.0.0.1:4418
+}

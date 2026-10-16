@@ -1,0 +1,12 @@
+# Optional independent frontend in front of the existing npm run dev API.
+# This is NOT the production stack. Port 4418 remains the host development API.
+name: sitecontrol-frontend-local
+services:
+  frontend:
+    image: sitecontrol-frontend:local
+    build: {context: ., dockerfile: frontend/Dockerfile}
+    environment:
+      API_UPSTREAM: host.docker.internal:4418
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["127.0.0.1:4419:8080"]
+    restart: unless-stopped
