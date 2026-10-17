@@ -16,7 +16,7 @@ import { sha256 } from '../storage-adapter.mjs';
 import { localEnv } from '../scripts/pilot-env.mjs';
 import { importLegacy } from '../scripts/import-legacy.mjs';
 const env={...await localEnv()},maintenance=new pg.Pool({connectionString:env.DATABASE_URL}),name='sitecontrol_test_'+Date.now(),testRoot=join(project,'storage','pilot-tests',name);await fs.mkdir(testRoot,{recursive:true});
-await maintenance.query(`CREATE DATABASE "${name}"`);const databaseUrl=new URL(env.DATABASE_URL);databaseUrl.pathname='/'+name;const pool=new pg.Pool({connectionString:databaseUrl.href});await migrate(pool);await migrate(pool);assert.equal(Number((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count),2);
+await maintenance.query(`CREATE DATABASE "${name}"`);const databaseUrl=new URL(env.DATABASE_URL);databaseUrl.pathname='/'+name;const pool=new pg.Pool({connectionString:databaseUrl.href});await migrate(pool);await migrate(pool);assert.equal(Number((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count),3);
 const version=(await pool.query('SHOW server_version')).rows[0].server_version;assert(version.startsWith('18.6'));const results=[];function pass(s){results.push(s);console.log('PASS',s)}pass('真实 PostgreSQL '+version+'，显式迁移可重复执行');
 async function port(){const s=createServer();s.listen(0,'127.0.0.1');await once(s,'listening');const p=s.address().port;await new Promise(r=>s.close(r));return p}
 const [apiPort,webPort,adminPort,proxyPort]=await Promise.all([port(),port(),port(),port()]),base=`http://127.0.0.1:${apiPort}`,web=`http://127.0.0.1:${webPort}/sites/s1/`,admin=`http://127.0.0.1:${adminPort}`;

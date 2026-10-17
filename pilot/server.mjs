@@ -9,9 +9,11 @@ import { createStorage } from '../storage-adapter.mjs';
 import { safeHtml } from '../html.mjs';
 import { enqueuePublish,enqueueDeploy,rollback } from './publishing.mjs';
 import { agentRoute } from './agent-api.mjs';
+import { uploadTemplate,draftPreview } from './template-upload.mjs';
+import { contentFields } from './content-fields.mjs';
 const db=database(),store=createStorage(dataRoot());await checkDatabase(db);await seed(db);
 const iso=d=>d?.toISOString?.()||d;
-const publicFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/classic.css':'classic.css','/editor.js':'editor.js','/editor.css':'editor.css','/deployment-ui.js':'deployment-ui.js','/pilot-ui.js':'pilot-ui.js','/vendor/jodit.js':'../node_modules/jodit/es2021/jodit.fat.min.js','/vendor/jodit.css':'../node_modules/jodit/es2021/jodit.min.css'};
+const publicFiles={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/classic.css':'classic.css','/editor.js':'editor.js','/editor.css':'editor.css','/deployment-ui.js':'deployment-ui.js','/templates-ui.js':'templates-ui.js','/pilot-ui.js':'pilot-ui.js','/vendor/jodit.js':'../node_modules/jodit/es2021/jodit.fat.min.js','/vendor/jodit.css':'../node_modules/jodit/es2021/jodit.min.css'};
 const rate=new Map();
 function rateLimit(key,max,ms){const now=Date.now(),r=rate.get(key);if(!r||r.until<now){rate.set(key,{count:1,until:now+ms});return}if(++r.count>max)fail('请求频率过高，请稍后再试',429);if(rate.size>5000)for(const [k,v]of rate)if(v.until<now)rate.delete(k)}
 async function auth(req){const value=req.headers.cookie?.match(/(?:^|; )session=([^;]+)/)?.[1];if(!value)fail('请先登录',401);const row=(await db.query('SELECT u.* FROM sessions ss JOIN users u ON u.id=ss.user_id WHERE ss.token_hash=$1 AND ss.expires_at>now()',[hash(value)])).rows[0];if(!row)fail('登录已失效',401);return accountScope(row)}
@@ -22,7 +24,7 @@ async function stateFor(user){
   db.query('SELECT * FROM agencies WHERE ($1::text IS NULL OR id=$1) ORDER BY id',[user.role==='admin'?null:user.agency_id]),
   db.query('SELECT * FROM articles WHERE site_id=ANY($1::text[]) ORDER BY updated_at DESC',[ids]),db.query('SELECT * FROM releases WHERE site_id=ANY($1::text[]) ORDER BY sequence DESC LIMIT 200',[ids]),
   db.query('SELECT * FROM media WHERE site_id=ANY($1::text[]) ORDER BY created_at DESC',[ids]),db.query('SELECT * FROM audit_logs WHERE site_id=ANY($1::text[]) ORDER BY id DESC LIMIT 100',[ids]),
-  user.role==='admin'?db.query('SELECT id,name,last_seen,version,revoked FROM servers ORDER BY created_at'):Promise.resolve({rows:[]}),db.query('SELECT * FROM deployment_tasks WHERE site_id=ANY($1::text[]) ORDER BY sequence DESC LIMIT 100',[ids]),db.query('SELECT * FROM build_jobs WHERE site_id=ANY($1::text[]) ORDER BY created_at DESC LIMIT 100',[ids]),db.query('SELECT id,name,version FROM templates ORDER BY created_at DESC')]);
+  user.role==='admin'?db.query('SELECT id,name,last_seen,version,revoked FROM servers ORDER BY created_at'):Promise.resolve({rows:[]}),db.query('SELECT * FROM deployment_tasks WHERE site_id=ANY($1::text[]) ORDER BY sequence DESC LIMIT 100',[ids]),db.query('SELECT * FROM build_jobs WHERE site_id=ANY($1::text[]) ORDER BY created_at DESC LIMIT 100',[ids]),user.role==='admin'?db.query('SELECT id,name,version,archive_key,upload_bytes,report FROM templates ORDER BY created_at DESC'):Promise.resolve({rows:[]})]);
  return {user:{id:user.id,name:user.name,role:user.role,agency:user.agency_id},sites:rows.map(siteView),agencies:agencies.rows,articles:articles.rows.map(a=>({id:a.id,site:a.site_id,title:a.title,summary:a.summary,body:a.body,format:a.format,status:a.status,external:a.external_id,updated:iso(a.updated_at)})),releases:releases.rows.map(r=>({id:r.id,site:r.site_id,status:r.status,by:r.created_by,time:iso(r.created_at),pages:r.pages,error:r.error,templateVersion:r.template_id,bytes:Number(r.bytes),format:r.format})),media:media.rows.map(m=>({id:m.id,site:m.site_id,name:m.name,url:m.url,size:Number(m.size),...m.metadata})),logs:logs.rows.map(l=>({id:l.id,site:l.site_id,who:l.actor,action:l.action,time:iso(l.created_at)})),servers:servers.rows.map(s=>({id:s.id,name:s.name,version:s.version,lastSeen:iso(s.last_seen),online:!!s.last_seen&&Date.now()-s.last_seen<30000})),deployments:tasks.rows.map(t=>({id:t.id,site:t.site_id,release:t.release_id,server:t.server_id,status:t.status,kind:t.kind,check:t.result,error:t.error,time:iso(t.created_at)})),builds:builds.rows.map(b=>({id:b.id,site:b.site_id,release:b.release_id,status:b.status,error:b.error,attempts:b.attempts,time:iso(b.created_at)})),templates:templates.rows,storage:store.info(),runtime:{database:'PostgreSQL',buildQueue:'BullMQ / Redis',edition:'正式试点版'}};
 }
 async function saveArticle(c,site,b){
@@ -50,6 +52,15 @@ const server=http.createServer(async(req,res)=>{try{
  if(path.startsWith('/api/')){
   const user=await auth(req);if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('请求来源不允许',403);
   if(path==='/api/state')return json(res,await stateFor(user));
+  if(path.startsWith('/api/draft-preview/')){
+   if(req.method!=='GET')fail('请使用GET',405);const parts=path.split('/'),preview=(await db.query('SELECT * FROM draft_previews WHERE id=$1 AND created_by=$2 AND expires_at>now()',[parts[3],user.id])).rows[0];if(!preview)fail('预览不存在或已过期',404);await siteFor(db,user,preview.site_id);
+   let name=decodeURIComponent(parts.slice(4).join('/'));if(!name||name.endsWith('/'))name+='index.html';const base=resolve(preview.source_path),file=resolve(base,name);if(!file.startsWith(base+'/')&&!file.startsWith(base+'\\'))fail('非法预览路径',403);
+   res.setHeader('Content-Security-Policy',"sandbox allow-same-origin; default-src 'none'; style-src 'self' 'unsafe-inline'; img-src https: data: 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");res.setHeader('Referrer-Policy','no-referrer');
+   if(extname(file)==='.html'){let html=await fs.readFile(file,'utf8');html=html.replace('</head>','<style>.site-loader{display:none!important}.reveal{opacity:1!important;transform:none!important}</style></head>');res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(html)}return serve(res,file);
+  }
+  if(path==='/api/infrastructure/templates/upload'){
+   admin(user);if(req.method!=='POST')fail('请使用POST',405);return json(res,await uploadTemplate(req,db,store,user,new URL(req.url,'http://localhost')),201);
+  }
   if(path==='/api/logout'){const value=req.headers.cookie?.match(/(?:^|; )session=([^;]+)/)?.[1];await db.query('DELETE FROM sessions WHERE token_hash=$1',[hash(value)]);res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,{ok:true})}
   if(req.method!=='POST')fail('请使用POST',405);const b=await body(req);
   if(path==='/api/sites'){
@@ -58,6 +69,8 @@ const server=http.createServer(async(req,res)=>{try{
   }
   if(path.startsWith('/api/infrastructure/')){
    admin(user);
+   if(path==='/api/infrastructure/storage/check'){rateLimit('storage-check',3,60000);return json(res,await store.probe())}
+   if(path==='/api/infrastructure/templates/preview')return json(res,await draftPreview(db,user,b.site),201);
    if(path==='/api/infrastructure/agencies'){
     if(!b.name||!b.username||String(b.password||'').length<12)fail('请填写代理商名称、账号和至少12位密码');
     const agency=id('a');await transaction(db,async c=>{await c.query('INSERT INTO agencies VALUES($1,$2,$3)',[agency,String(b.name).slice(0,100),String(b.level||'基础版').slice(0,30)]);await c.query('INSERT INTO users(id,username,password_hash,name,role,agency_id) VALUES($1,$2,$3,$4,$5,$6)',[id('u'),String(b.username).slice(0,100),password(b.password),b.name,'agency',agency])});return json(res,{id:agency},201);
@@ -73,13 +86,13 @@ const server=http.createServer(async(req,res)=>{try{
   const m=path.match(/^\/api\/sites\/([^/]+)\/(content|articles|publish|rollback|media)$/);if(!m)fail('接口不存在',404);const site=await siteFor(db,user,m[1]);
   if(m[2]==='publish')return json(res,await enqueuePublish(db,user,site.id),202);
   if(m[2]==='rollback')return json(res,await rollback(db,user,site.id,b.id),202);
-  if(m[2]==='content'){const content={};for(const key of ['title','intro','phone'])if(typeof b[key]==='string')content[key]=b[key].slice(0,2000);await transaction(db,async c=>{await c.query('UPDATE sites SET content=content||$1::jsonb,revision=revision+1 WHERE id=$2',[JSON.stringify(content),site.id]);await audit(c,site.id,user.name,'保存官网内容草稿')});return json(res,{ok:true})}
+  if(m[2]==='content'){const content=contentFields(b);await transaction(db,async c=>{await c.query('UPDATE sites SET content=content||$1::jsonb,revision=revision+1 WHERE id=$2',[JSON.stringify(content),site.id]);await audit(c,site.id,user.name,'保存官网内容草稿')});return json(res,{ok:true})}
   if(m[2]==='articles'){await transaction(db,async c=>{await c.query('SELECT id FROM sites WHERE id=$1 FOR UPDATE',[site.id]);if(b.remove){if(!(await c.query('DELETE FROM articles WHERE id=$1 AND site_id=$2',[b.id,site.id])).rowCount)fail('文章不存在',404);await c.query('UPDATE sites SET revision=revision+1 WHERE id=$1',[site.id])}else await saveArticle(c,site,b);await audit(c,site.id,user.name,b.remove?'删除文章':'保存文章')});return json(res,{ok:true})}
   if(m[2]==='media'){const item=await store.image(site.id,b);await db.query('INSERT INTO media(id,site_id,name,object_key,url,size,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',[item.id,site.id,item.name,item.key,item.url,item.size,item]);return json(res,item)}
  }
  if(path.startsWith('/objects/'))return serve(res,store.localPublicFile(decodeURIComponent(path.slice(9))));
  if(path.startsWith('/media/')){const base=resolve(process.env.LEGACY_DATA_ROOT||join(project,'storage'),'media'),file=resolve(base,decodeURIComponent(path.slice(7)));if(!file.startsWith(base+'/')&&!file.startsWith(base+'\\'))fail('非法路径',403);return serve(res,file)}
- if(path.startsWith('/preview/')){const user=await auth(req),parts=path.split('/'),site=await siteFor(db,user,parts[2]);if(!site.active_release)fail('尚未完成发布',404);let name=decodeURIComponent(parts.slice(3).join('/'));if(!name||name.endsWith('/'))name+='index.html';const base=join(dataRoot(),'releases',site.id,site.active_release),file=resolve(base,name);if(!file.startsWith(base+'/')&&!file.startsWith(base+'\\'))fail('非法路径',403);return serve(res,file)}
+ if(path.startsWith('/preview/')){const user=await auth(req),parts=path.split('/'),site=await siteFor(db,user,parts[2]);if(!site.active_release)fail('尚未完成发布',404);let name=decodeURIComponent(parts.slice(3).join('/'));if(!name||name.endsWith('/'))name+='index.html';const base=join(dataRoot(),'releases',site.id,site.active_release),file=resolve(base,name);if(!file.startsWith(base+'/')&&!file.startsWith(base+'\\'))fail('非法路径',403);res.setHeader('Content-Security-Policy',"sandbox allow-same-origin; default-src 'none'; style-src 'self' 'unsafe-inline'; img-src https: data: 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");res.setHeader('Referrer-Policy','no-referrer');return serve(res,file)}
  if(process.env.SERVE_FRONTEND!=='false'&&publicFiles[path])return serve(res,join(project,'public',publicFiles[path]));fail('页面不存在',404);
 }catch(e){if(!res.headersSent)json(res,{error:e.code==='23505'?'记录冲突：域名或标识已存在':e.message},e.status||500);else res.destroy()}});
 const port=Number(process.env.PORT||4418);server.listen(port,process.env.HOST||'127.0.0.1',()=>console.log(`Pilot API: http://127.0.0.1:${port}`));
