@@ -1,10 +1,6 @@
 # 依赖与构建产物
 node_modules/
-api/node_modules/
-web/node_modules/
 dist/
-api/dist/
-web/dist/
 *.tsbuildinfo
 
 # 运行时数据、日志和本地测试文件
@@ -19,13 +15,7 @@ logs/
 # 敏感环境变量：仅保留可提交的示例文件
 .env
 .env.*
-api/.env
-api/.env.*
-web/.env.local
-web/.env.*.local
 !.env.example
-!api/.env.example
-!web/.env.example
 
 # 本地备份
 *.bak
@@ -41,3 +31,9 @@ agent.json
 *.sqlite-*
 *.dump
 *.tar.gz
+
+# 本地运维记录和生产机器专用配置
+docs/主控OSS归档修复记录-*.md
+docs/图片OSS地址修改记录-*.md
+compose.deploy.yml
+customer-templates/

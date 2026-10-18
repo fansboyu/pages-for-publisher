@@ -1,57 +1,49 @@
-# 独立部署说明
+# 当前部署说明（v1.3.1）
 
-本项目与旧版 `github-pages发布中心` 使用不同目录、容器项目和本机端口，迁移时不覆盖旧版。
+## 总控部署
 
-## API 与 Worker
-
-```bash
-cd api
-cp .env.example .env
-# 编辑 .env：填写 POSTGRES_PASSWORD、DATABASE_URL、JWT_SECRET、GITHUB_TOKEN、CORS_ORIGIN
-docker compose up -d --build
-```
-
-API 默认只绑定服务器本机 `127.0.0.1:3003`。在 Caddy 中为新 API 域名添加反向代理：
-
-```caddy
-api-new.example.com {
-    reverse_proxy 127.0.0.1:3003
-}
-```
-
-## 前端
+1. 使用项目根目录的 `compose.production.yml`。准备Docker、总控正式域名和外层Caddy。
+2. 将 `.env.pilot.example` 复制为 `.env`，填写数据库/Redis随机密码、`PUBLIC_BASE_URL`、至少14位的 `BOOTSTRAP_ADMIN_PASSWORD`。生产保持 `DEMO_MODE=false`、`COOKIE_SECURE=true`。
+3. 本地验证可用 `STORAGE_DRIVER=local`；正式OSS配置见[网站回滚与OSS配置](网站回滚与OSS配置.md)。
+4. 创建 `customer-templates` 目录，供可选的服务器目录导入使用；ZIP上传可直接在后台完成。
+5. 执行：
 
 ```bash
-cd web
-cp .env.example .env
-# 将 VITE_API_BASE_URL 改为 API HTTPS 地址
-npm install
-npm run build
+docker compose -f compose.production.yml up -d --build
 ```
 
-将 `web/dist` 部署到独立管理域名，例如 `admin.example.com`。Caddy 静态托管示例：
+迁移任务成功后API与Worker启动。前端映射 `127.0.0.1:4418`，由总控主机Caddy提供公网HTTPS：
 
 ```caddy
-admin.example.com {
-    root * /opt/multi-tenant-static-publisher/web/dist
-    try_files {path} /index.html
-    file_server
+admin.example.cn {
+    reverse_proxy 127.0.0.1:4418
 }
 ```
 
-并在 API 的 `CORS_ORIGIN` 中填写 `https://admin.example.com`。
+前端同源转发 `/api/*`、`/agent/v1/*`、`/webhooks/v1/*` 等接口，不需要额外配置前端API地址。保留原Host，避免影响来源检查。数据库、Redis和API不映射公网端口。
 
-## 首次初始化
+## 客户服务器接入
 
-先调用一次：
+1. 管理员在「服务器与部署」注册服务器，填写便于辨认的名称，保存一次性Agent配置。
+2. 公网IP由运维和DNS管理，不作为认证依据。后台账号、服务器名称、Linux系统用户名无需一致。
+3. 客户服务器安装Node.js 24、Caddy、Agent及其依赖。Agent 0.3需要 `agent/agent.mjs`、`pilot/archive.mjs`、`tar-stream` 及传递依赖，保持相对目录结构。
+4. 将配置保存至受保护路径，例如 `/etc/site-agent/agent.json`。`control`填写总控HTTPS地址，`token`填写注册凭据，`mode=production`，`root`使用专用目录。
+5. Caddy管理接口只监听 `127.0.0.1:2019`。先启动Caddy，再启动Agent；开机服务应等待管理接口可用。示例见 `deploy/`。
+6. 在总控创建网站，绑定模板和服务器。网站域名解析到客户服务器公网IP，放通80/443。
+7. 填写电话、备案等内容，预览后发布；检查构建、部署任务及公网域名HTTPS。
 
-```text
-POST /auth/bootstrap
-{
-  "username": "admin",
-  "password": "至少 8 位的初始密码",
-  "display_name": "平台管理员"
-}
+一台服务器只需一个Agent和专用Caddy，可管理多个网站。客户Agent会加载整份Caddy配置，应与总控入口及其他应用隔离。
+
+## 备份与更新
+
+- 更新前备份PostgreSQL、platform-data卷、OSS对象和相关配置；客户侧保存站点目录、agent-state.json及Caddy证书/配置。
+- 修改 `.env` 后需重新创建API和Worker，使环境变量生效：
+
+```bash
+docker compose -f compose.production.yml up -d --force-recreate api worker
 ```
 
-该接口仅允许在数据库没有任何账号时成功执行一次。之后用该账号登录，在前端创建客户、客户负责人和客户网站。
+- 应用代码或前端变动后，重新构建相应镜像再部署。上线前核对数据库迁移和版本兼容。
+- 回滚客户网站与回退总控应用是不同操作，详见回滚说明。
+
+完整网络与容器说明见[前后端容器与依赖](前后端容器与依赖.md)。

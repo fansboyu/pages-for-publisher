@@ -1,8 +1,8 @@
-# 统一网站管理平台 v1.2
+# 数告星发布中心 v1.3.1
 
-当前版本 `1.2.0`，Git 标签 `v1.2`。采用一台客户服务器一个Agent＋一个专用Caddy；每个网站独立目录、域名和发布版本，总控管理绑定与发布。客户网站运行不依赖GitHub在线。
+当前版本 `1.3.1`。本版移除历史仓库分支发布实现，支持图片与私有归档分别选择本地或OSS存储。采用一台客户服务器一个Agent＋一个专用Caddy；每个网站独立目录、域名和发布版本，总控管理绑定与发布，客户网站由自己的服务器持续提供访问。
 
-仓库中若存在 `api/`、`web/`，它们是旧版 NestJS/Vue + GitHub/Cloudflare 发布链路，保留作历史参考，不是v1.2入口。不要把旧版的数据库、环境变量和角色体系与根目录新版混用。新版总控部署入口为根目录 `compose.production.yml`。参阅[多站点部署与v1.2验收](docs/v1.2多站点部署与验收.md)。
+总控部署入口为根目录 `compose.production.yml`。后端与构建器在 `pilot/`，后台前端在 `public/`，客户部署程序在 `agent/`。模板通过ZIP上传或目录导入，构建归档后由Agent部署。参阅[当前架构](docs/architecture.md)、[部署说明](docs/deployment.md)、[网站回滚与OSS配置](docs/网站回滚与OSS配置.md)。
 
 采用 Node.js 24、PostgreSQL **18.6**、Redis/BullMQ 独立构建 Worker、Caddy 和部署 Agent。PostgreSQL版本已按2026-10-16官方稳定版本核实，拒绝使用RC/beta版本。
 
