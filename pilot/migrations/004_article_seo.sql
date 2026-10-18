@@ -1,0 +1,6 @@
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS seo_title text NOT NULL DEFAULT '';
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS seo_description text NOT NULL DEFAULT '';
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS seo_keywords text NOT NULL DEFAULT '';
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS cover_image_url text NOT NULL DEFAULT '';
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_model text NOT NULL DEFAULT '';
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_generated_at timestamptz;

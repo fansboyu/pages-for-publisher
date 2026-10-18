@@ -1,0 +1,26 @@
+[Unit]
+Description=Website Deployment Agent with existing Caddy services
+After=network-online.target caddy.service
+Wants=network-online.target
+Requires=caddy.service
+PartOf=caddy.service
+
+[Service]
+Type=simple
+User=site-agent
+Group=caddy
+WorkingDirectory=/opt/site-control
+TimeoutStartSec=45
+ExecStartPre=/usr/local/bin/node /opt/site-control/agent/wait-caddy.mjs /etc/site-agent/agent.json
+ExecStart=/usr/local/bin/node /opt/site-control/agent/agent.mjs /etc/site-agent/agent.json
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/site-agent
+
+[Install]
+WantedBy=multi-user.target

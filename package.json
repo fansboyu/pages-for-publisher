@@ -1,6 +1,6 @@
 {
   "name": "website-control-local",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "db:import-legacy": "node scripts/import-legacy.mjs",
     "test:pilot": "node tests/pilot.mjs",
     "test:frontend": "node tests/frontend.mjs",
+    "test:ai": "node tests/ai-article.mjs",
     "test:multi-site": "node tests/multi-site.mjs",
     "frontend:local": "docker compose -f compose.frontend-local.yml up -d --build",
     "dev:legacy": "node scripts/local.mjs",

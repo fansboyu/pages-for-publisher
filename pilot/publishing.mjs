@@ -3,7 +3,7 @@ import { id,siteFor,siteView,audit,fail } from './common.mjs';
 export async function enqueuePublish(pool,user,siteId){return transaction(pool,async c=>{
  const site=await siteFor(c,user,siteId,true),template=(await c.query('SELECT * FROM templates WHERE id=$1',[site.template_id])).rows[0];
  if(!template)fail('模板版本不存在');
- const articles=(await c.query("SELECT * FROM articles WHERE site_id=$1 AND status='published' ORDER BY updated_at DESC,id",[siteId])).rows.map(a=>({id:a.id,title:a.title,summary:a.summary,body:a.body,format:a.format,updated:a.updated_at.toISOString()}));
+ const articles=(await c.query("SELECT * FROM articles WHERE site_id=$1 AND status='published' ORDER BY updated_at DESC,id",[siteId])).rows.map(a=>({id:a.id,title:a.title,summary:a.summary,body:a.body,format:a.format,seo_title:a.seo_title||'',seo_description:a.seo_description||'',seo_keywords:a.seo_keywords||'',cover_image_url:a.cover_image_url||'',updated:a.updated_at.toISOString()}));
  const {key,...content}=siteView(site);const snapshot={site:content,articles,template:{id:template.id,version:template.version},revision:Number(site.revision)};
  const release=id('r'),job=id('b');await c.query('INSERT INTO releases(id,site_id,template_id,snapshot,created_by) VALUES($1,$2,$3,$4,$5)',[release,siteId,template.id,snapshot,user.name]);
  await c.query('INSERT INTO build_jobs(id,release_id,site_id) VALUES($1,$2,$3)',[job,release,siteId]);await audit(c,siteId,user.name,'创建网站构建任务');

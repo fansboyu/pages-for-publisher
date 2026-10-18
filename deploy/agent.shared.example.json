@@ -1,0 +1,11 @@
+{
+  "control": "https://control.example.cn",
+  "token": "从总控注册服务器后取得的独立凭据",
+  "root": "/var/lib/site-agent",
+  "mode": "production",
+  "caddyAdmin": "http://127.0.0.1:2019",
+  "healthPort": 4322,
+  "pollMs": 2000,
+  "sharedCaddy": true,
+  "sharedServer": "srv0"
+}

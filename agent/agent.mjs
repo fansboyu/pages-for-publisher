@@ -3,6 +3,7 @@ import { resolve,join,dirname,isAbsolute } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { unpackWebsite,limits } from '../pilot/archive.mjs';
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const safeId=id=>{if(!/^[a-zA-Z0-9_-]{1,100}$/.test(id||''))throw Error('非法站点或版本标识');return id};
@@ -31,6 +32,61 @@ export function makeConfig(sites,config){
  }
  return {admin:{listen:new URL(config.caddyAdmin).host},apps:{http},...(config.storage?{storage:config.storage}:{})};
 }
+export function mergeSharedConfig(existing,sites,config){
+ if(config.mode!=='production'||!config.sharedServer)throw Error('共存模式需要production及明确的sharedServer');
+ const merged=structuredClone(existing),servers=merged.apps?.http?.servers,target=servers?.[config.sharedServer];
+ if(!target)throw Error('共存目标Caddy服务器不存在');
+ const namespace='site-agent-'+digest(Buffer.from(resolve(config.root))).slice(0,16)+'-',owned=r=>typeof r?.['@id']==='string'&&(r['@id']===namespace+'managed'||r['@id'].startsWith(namespace+'site-'));
+ const domains=Object.values(sites).map(s=>s.domain.toLowerCase());
+ function checkRoutes(routes){for(const route of routes||[]){if(owned(route))continue;
+  for(const matcher of route.match||[])for(const host of matcher.host||[]){
+   const pattern=new RegExp('^'+host.toLowerCase().replace(/[.+?^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'[^.]+')+'$');
+   if(domains.some(domain=>pattern.test(domain)))throw Error('域名已被现有Caddy业务使用：'+host);
+  }
+  for(const handler of route.handle||[])checkRoutes(handler.routes);
+ }}
+ for(const server of Object.values(servers))checkRoutes(server.routes);
+ const generated=makeConfig(sites,config),routes=generated.apps.http.servers.web.routes.filter(r=>r.match);
+ for(const [index,site]of Object.keys(sites).entries())routes[index]['@id']=namespace+'site-'+safeId(site);
+ target.routes=[...routes,...(target.routes||[]).filter(r=>!owned(r))];
+ const healthName=namespace+'health';
+ if(servers[healthName]&&servers[healthName]['@id']!==healthName)throw Error('共存健康检查名称冲突');
+ servers[healthName]={...generated.apps.http.servers.health,'@id':healthName};
+ return merged;
+}
+async function loadSharedSubtree(existing,sites,config,admin,headers){
+ const merged=mergeSharedConfig(existing,sites,config),namespace='site-agent-'+digest(Buffer.from(resolve(config.root))).slice(0,16)+'-',id=namespace+'managed',healthName=namespace+'health';
+ const oldServers=existing.apps.http.servers,oldTarget=oldServers[config.sharedServer];
+ if(!Array.isArray(oldTarget.routes))throw Error('旧版共存Caddy需要已有routes数组');
+ for(const [name,server]of Object.entries(oldServers))if(name!==config.sharedServer&&(server.routes||[]).some(r=>r['@id']===id))throw Error('Agent托管路由已存在于其他Caddy服务器');
+ if(oldTarget.routes.some(r=>r['@id']?.startsWith(namespace+'site-')))throw Error('旧版Caddy不能直接接管其他版本的共存布局');
+ const wrapper={'@id':id,handle:[{handler:'subroute',routes:merged.apps.http.servers[config.sharedServer].routes.filter(r=>r['@id']?.startsWith(namespace+'site-'))}]};
+ const previous=oldTarget.routes.find(r=>r['@id']===id);
+ if(previous&&(previous.handle?.length!==1||previous.handle[0].handler!=='subroute'))throw Error('Agent托管路由结构已被外部修改');
+ const apply=async(path,method,value)=>{const r=await fetch(new URL(path,admin),{method,headers,body:JSON.stringify(value),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Caddy独立子配置更新失败: '+await r.text())};
+ // Old Caddy lacks ETags. Strict creates and ID-addressed writes never replace
+ // foreign routes or global configuration, even when another writer adds routes.
+ if(!isDeepStrictEqual(oldServers[healthName],merged.apps.http.servers[healthName]))await apply(oldServers[healthName]?'/id/'+healthName:'/config/apps/http/servers/'+healthName,oldServers[healthName]?'PATCH':'PUT',merged.apps.http.servers[healthName]);
+ if(!isDeepStrictEqual(previous,wrapper))await apply(previous?'/id/'+id+'/handle/0/routes':'/config/apps/http/servers/'+encodeURIComponent(config.sharedServer)+'/routes/0',previous?'PATCH':'PUT',previous?wrapper.handle[0].routes:wrapper);
+ return merged;
+}
+export async function loadCaddyConfig(sites,config){
+ const admin=new URL(config.caddyAdmin),headers={'Content-Type':'application/json',Origin:admin.origin};
+ if(!config.sharedCaddy){const conf=makeConfig(sites,config),r=await fetch(new URL('/load',admin),{method:'POST',headers,body:JSON.stringify(conf),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Caddy 配置加载失败: '+await r.text());return conf}
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await fetch(new URL('/config/',admin),{headers:{Origin:admin.origin},signal:AbortSignal.timeout(15000)});
+  if(!current.ok)throw Error('读取共存Caddy配置失败');
+  const etag=current.headers.get('etag'),previous=await current.json();
+  if(!etag)return loadSharedSubtree(previous,sites,config,admin,headers);
+  const conf=mergeSharedConfig(previous,sites,config);
+  if(isDeepStrictEqual(previous,conf))return conf;
+  const r=await fetch(new URL('/config/',admin),{method:'POST',headers:{...headers,'If-Match':etag},body:JSON.stringify(conf),signal:AbortSignal.timeout(15000)});
+  if(r.status===412)continue;
+  if(!r.ok)throw Error('Caddy共存配置加载失败: '+await r.text());
+  return conf;
+ }
+ throw Error('Caddy配置被其他程序同时修改，请重试');
+}
 export async function startAgent(config){
  if(!['local','production'].includes(config.mode))throw Error('Agent mode 必须为 local 或 production');
  const base=new URL(config.control);if(base.protocol!=='https:'&&!['127.0.0.1','localhost','[::1]'].includes(base.hostname))throw Error('远程总控必须使用 HTTPS');
@@ -42,7 +98,7 @@ export async function startAgent(config){
  let current={sites:{},pending:null},stopped=false;try{current=JSON.parse(await fs.readFile(stateFile,'utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
  const save=async()=>{await fs.writeFile(stateFile+'.tmp',JSON.stringify(current,null,2));await fs.rename(stateFile+'.tmp',stateFile)};
  const request=async(path,body)=>{const r=await fetch(new URL(path,base),{method:body?'POST':'GET',headers:{Authorization:`Bearer ${config.token}`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify({...body,version:'0.3.0'}):undefined,signal:AbortSignal.timeout(12000)});if(!r.ok)throw Object.assign(Error(`总控 ${r.status}: ${await r.text()}`),{status:r.status});return r};
- const load=async sites=>{const conf=makeConfig(sites,config),r=await fetch(new URL('/load',admin),{method:'POST',headers:{'Content-Type':'application/json',Origin:admin.origin},body:JSON.stringify(conf),signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('Caddy 配置加载失败: '+await r.text());return conf};
+ const load=sites=>loadCaddyConfig(sites,config);
  const log=(...args)=>console.log(new Date().toISOString(),...args);
  const report=async()=>{if(!current.pending)return;try{await request('/agent/v1/report',current.pending);log('reported',current.pending.task);current.pending=null;await save()}catch(e){if(e.status===409){current.pending=null;await save()}else throw e}};
  const deploy=async task=>{
@@ -78,8 +134,8 @@ export async function startAgent(config){
  const shutdown=()=>{stopped=true};process.once('SIGTERM',shutdown);process.once('SIGINT',shutdown);
  try{
   // 上次切换中断时，以本地持久化的确认版本为准恢复路由。
-  await load(current.sites);log('agent ready',config.mode,root);let delay=config.pollMs||2000;
-  while(!stopped){try{await report();if(!current.pending){const {task}=await(await request('/agent/v1/poll',{})).json();if(task){await deploy(task);await report()}}delay=config.pollMs||2000}catch(e){log('reconnect:',e.message);delay=Math.min(delay*2,30000)}await new Promise(r=>setTimeout(r,delay))}
+  await load(current.sites);log('agent ready',config.mode,root);let delay=config.pollMs||2000,nextSharedCheck=Date.now()+30000;
+  while(!stopped){try{await report();if(config.sharedCaddy&&Date.now()>=nextSharedCheck){await load(current.sites);nextSharedCheck=Date.now()+30000}if(!current.pending){const {task}=await(await request('/agent/v1/poll',{})).json();if(task){await deploy(task);await report()}}delay=config.pollMs||2000}catch(e){log('reconnect:',e.message);delay=Math.min(delay*2,30000)}await new Promise(r=>setTimeout(r,delay))}
  }finally{await fs.unlink(lockFile).catch(()=>{});process.removeListener('SIGTERM',shutdown);process.removeListener('SIGINT',shutdown)}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
