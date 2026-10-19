@@ -14,11 +14,11 @@ export async function agentRoute(db,store,req,res,path){
    await c.query('SELECT id FROM servers WHERE id=$1 FOR UPDATE',[server.id]);
    await c.query("UPDATE deployment_tasks SET status=CASE WHEN attempts>=5 THEN 'failed' ELSE 'queued' END,error='Agent租约超时' WHERE server_id=$1 AND status='running' AND lease_until<now()",[server.id]);
    if((await c.query("SELECT 1 FROM deployment_tasks WHERE server_id=$1 AND status='running'",[server.id])).rowCount)return null;
-   const task=(await c.query("SELECT d.*,r.sha256,r.bytes,r.format,r.archive_key FROM deployment_tasks d JOIN releases r ON r.id=d.release_id WHERE d.server_id=$1 AND d.status='queued' ORDER BY d.sequence LIMIT 1 FOR UPDATE OF d SKIP LOCKED",[server.id])).rows[0];if(!task)return null;
+   const task=(await c.query("SELECT d.*,r.sha256,r.bytes,r.format,r.archive_key,s.analytics_domains FROM deployment_tasks d JOIN releases r ON r.id=d.release_id JOIN sites s ON s.id=d.site_id WHERE d.server_id=$1 AND d.status='queued' ORDER BY d.sequence LIMIT 1 FOR UPDATE OF d SKIP LOCKED",[server.id])).rows[0];if(!task)return null;
    if(task.format==='tar-gzip-v2'&&!/^0\.[3-9]\.|^[1-9]\d*\./.test(String(b.version)))fail('Agent需升级到0.3.0或以上才能接收tar发布包',409);
    const site=(await c.query('SELECT server_id FROM sites WHERE id=$1',[task.site_id])).rows[0];if(site.server_id!==server.id){await c.query("UPDATE deployment_tasks SET status='failed',error='站点归属已变化' WHERE id=$1",[task.id]);return null}
    const lease=token();await c.query("UPDATE deployment_tasks SET status='running',attempts=attempts+1,lease_token=$1,lease_until=now()+interval '60 seconds' WHERE id=$2",[lease,task.id]);
-   return {id:task.id,site:task.site_id,release:task.release_id,kind:task.kind,domain:task.domain,lease,sha256:task.sha256,bytes:Number(task.bytes),format:task.format,download:store.archiveDownloadUrl(task.archive_key)||'/agent/v1/package?task='+task.id};
+   return {id:task.id,site:task.site_id,release:task.release_id,kind:task.kind,domain:task.domain,domains:[...new Set([task.domain,...(task.analytics_domains||[])])],lease,sha256:task.sha256,bytes:Number(task.bytes),format:task.format,download:store.archiveDownloadUrl(task.archive_key)||'/agent/v1/package?task='+task.id};
   });json(res,{task:result});return true;
  }
  await transaction(db,async c=>{

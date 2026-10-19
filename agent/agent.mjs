@@ -22,7 +22,8 @@ export function makeConfig(sites,config){
  const routes=Object.entries(sites).map(([site,s])=>{
   const handlers=[];if(config.mode==='local')handlers.push({handler:'rewrite',strip_path_prefix:`/sites/${site}`});
   handlers.push({handler:'headers',response:{set:{'X-Site-Release':[s.release],'X-Content-Type-Options':['nosniff']}}},{handler:'vars',root:s.path},{handler:'encode',encodings:{gzip:{}}},{handler:'file_server',index_names:['index.html']});
-  return {match:[config.mode==='local'?{path:[`/sites/${site}/*`]}:{host:[s.domain]}],handle:[{handler:'subroute',routes:[{handle:handlers}]}],terminal:true};
+  const hosts=[...new Set([s.domain,...(s.domains||[])].filter(Boolean))];
+  return {match:[config.mode==='local'?{path:[`/sites/${site}/*`]}:{host:hosts}],handle:[{handler:'subroute',routes:[{handle:handlers}]}],terminal:true};
  });
  routes.push({handle:[{handler:'static_response',status_code:404,body:'Website not deployed'}]});
  const http={servers:{web:{listen:[config.mode==='local'?`127.0.0.1:${config.port||4320}`:':443'],routes,...(config.mode==='local'?{automatic_https:{disable:true}}:{})}}};
@@ -37,7 +38,7 @@ export function mergeSharedConfig(existing,sites,config){
  const merged=structuredClone(existing),servers=merged.apps?.http?.servers,target=servers?.[config.sharedServer];
  if(!target)throw Error('共存目标Caddy服务器不存在');
  const namespace='site-agent-'+digest(Buffer.from(resolve(config.root))).slice(0,16)+'-',owned=r=>typeof r?.['@id']==='string'&&(r['@id']===namespace+'managed'||r['@id'].startsWith(namespace+'site-'));
- const domains=Object.values(sites).map(s=>s.domain.toLowerCase());
+ const domains=Object.values(sites).flatMap(s=>[s.domain,...(s.domains||[])].filter(Boolean).map(domain=>domain.toLowerCase()));
  function checkRoutes(routes){for(const route of routes||[]){if(owned(route))continue;
   for(const matcher of route.match||[])for(const host of matcher.host||[]){
    const pattern=new RegExp('^'+host.toLowerCase().replace(/[.+?^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'[^.]+')+'$');
@@ -102,8 +103,8 @@ export async function startAgent(config){
  const log=(...args)=>console.log(new Date().toISOString(),...args);
  const report=async()=>{if(!current.pending)return;try{await request('/agent/v1/report',current.pending);log('reported',current.pending.task);current.pending=null;await save()}catch(e){if(e.status===409){current.pending=null;await save()}else throw e}};
  const deploy=async task=>{
-  safeId(task.site);safeId(task.release);if(!/^[a-zA-Z0-9.-]+$/.test(task.domain)||task.domain.includes('..'))throw Error('域名格式错误');
-  if(Object.entries(current.sites).some(([id,s])=>id!==task.site&&s.domain===task.domain))throw Error('此域名已由另一个站点使用');
+  safeId(task.site);safeId(task.release);const domains=[...new Set([task.domain,...(task.domains||[])].filter(Boolean).map(x=>String(x).toLowerCase()))];if(!domains.length||domains.some(domain=>!/^[a-zA-Z0-9.-]+$/.test(domain)||domain.includes('..')))throw Error('域名格式错误');
+  if(Object.entries(current.sites).some(([id,s])=>id!==task.site&&[s.domain,...(s.domains||[])].some(domain=>domains.includes(String(domain).toLowerCase()))))throw Error('此域名已由另一个站点使用');
   const timer=setInterval(()=>request('/agent/v1/heartbeat',{task:task.id,lease:task.lease}).catch(e=>log('heartbeat:',e.message)),15000);
   const previous=structuredClone(current.sites);let switched=false;
   try{
@@ -114,7 +115,7 @@ export async function startAgent(config){
    const bundle=task.format==='tar-gzip-v2'?await unpackWebsite(Buffer.concat(chunks),task,cap):unpack(Buffer.concat(chunks),task),dir=join(root,'sites',task.site,'releases',task.release);
    // 每次重试重新验证和写入指定不可变版本，目录名由固定标识生成。
    for(const file of bundle.files){const target=join(dir,...file.path.split('/'));await fs.mkdir(dirname(target),{recursive:true});await fs.writeFile(target,Buffer.from(file.data,'base64'))}
-   const next={...previous,[task.site]:{release:task.release,path:dir.replace(/\\/g,'/'),domain:task.domain}};
+   const next={...previous,[task.site]:{release:task.release,path:dir.replace(/\\/g,'/'),domain:task.domain,domains}};
    // 记录切换意图；重启时按已确认版本恢复 Caddy。
    await fs.writeFile(join(root,'switch-journal.json'),JSON.stringify({previous,next,task:task.id}));
    await load(next);switched=true;

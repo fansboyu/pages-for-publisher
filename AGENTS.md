@@ -1,6 +1,6 @@
-# AGENTS.md — 数告星发布中心 v1.3.2
+# AGENTS.md — 数告星发布中心 v1.3.3
 
-本文件为后续维护者提供仓库地图和改造约束。当前发布版本为 **v1.3.2**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
+本文件为后续维护者提供仓库地图和改造约束。当前发布版本为 **v1.3.3**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
 
 ## 运行与验证
 
@@ -20,6 +20,7 @@
 - `pilot/server.mjs`：控制台 HTTP 服务、鉴权、管理 API、AI 文章生成入口及自动发布编排。
 - `pilot/worker.mjs`、`pilot/publishing.mjs`：BullMQ 后台队列、站点构建、发布版本与回滚。
 - `pilot/ai-article.mjs`：文本/图片供应商调用、文章结构校验、图片下载与压缩。供应商密钥只能由服务端读取。
+- `pilot/analytics.mjs`、`pilot/migrations/005_site_analytics.sql`：静态网页埋点脚本、域名配置和按日访问汇总；访客统计设计见 `docs/网站访问统计.md`。
 - `pilot/templates.mjs` 和 `pilot/templates/`：模板协议、模板加载、渲染及内置基础模板。
 - `agent/agent.mjs`：客户服务器部署 Agent；处理控制端任务、目录切换与 Caddy 配置。`agent/wait-caddy.mjs` 和 `deploy/site-agent-shared.service` 用于与客户已有 Caddy 共存。
 - `public/`：管理控制台前端。
@@ -47,5 +48,6 @@ DeepSeek 和百炼配置必须彼此独立。至少需要 `AI_TEXT_BASE_URL`、`
 - 外部 API 必须有超时、状态检查和输入/输出校验；百炼临时图片先下载持久化，再写入内容。
 - 文章正文用现有模板渲染与发布链路；更改表结构时增加迁移并覆盖迁移后的核心行为测试。
 - 修改发布、回滚、站点路由或 Agent Caddy 管理逻辑时，同时检查多站点隔离和现有客户 Caddy 配置共存。
+- 改动统计采集时，确保只接受绑定到该站点的 HTTPS 来源域名；域名别名需要同步 Agent 下发与 Caddy 路由，并测试代理商数据隔离。
 - 调整配置项时，同步更新 `.env.example`、`.env.pilot.example`、`.env.local.example`（若适用）及对应文档；示例中只能出现占位符。
 - 版本发布前检查 `package.json`、`package-lock.json`、`CHANGELOG.md` 和 Git tag 是否一致；运行本次改动对应测试与主发布闭环测试。

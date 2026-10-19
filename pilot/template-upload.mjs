@@ -73,7 +73,7 @@ export async function draftPreview(db,user,siteId){
  const site=await siteFor(db,user,siteId),template=(await db.query('SELECT * FROM templates WHERE id=$1',[site.template_id])).rows[0];
  const articles=(await db.query("SELECT * FROM articles WHERE site_id=$1 AND status='published' ORDER BY updated_at DESC,id",[siteId])).rows.map(a=>({id:a.id,title:a.title,summary:a.summary,body:a.body,format:a.format,updated:a.updated_at.toISOString()}));
  const {key,...content}=siteView(site);contentFields(content);
- const files=await buildWebsite({site:content,articles},template),preview=id('pv'),folder=join(dataRoot(),'draft-previews',preview);
+ const files=await buildWebsite({site:content,articles},template,{analytics:false}),preview=id('pv'),folder=join(dataRoot(),'draft-previews',preview);
  for(const [path,bytes]of files){const dest=join(folder,path);await fs.mkdir(dirname(dest),{recursive:true});await fs.writeFile(dest,bytes)}
  await db.query('INSERT INTO draft_previews(id,site_id,created_by,source_path) VALUES($1,$2,$3,$4)',[preview,siteId,user.id,folder]);
  return {url:`/api/draft-preview/${preview}/`,pages:[...files.keys()].filter(p=>p.endsWith('.html')),expiresIn:1800};
