@@ -13,4 +13,8 @@ assert.equal(vm.runInContext('view',context),'sites');
 vm.runInContext("view='team';render()",context);assert(app.innerHTML.includes('team-form'));
 vm.runInContext("view='video';render()",context);assert(app.innerHTML.includes('尚未开放生成'));
 vm.runInContext("view='articles';data.permissions.pages.push('articles');render()",context);assert(app.innerHTML.includes('暂无可用网站'));
+vm.runInContext(await readFile(new URL('../public/billing-ui.js',import.meta.url),'utf8'),context);
+vm.runInContext("data.permissions.pages.push('billing');billingData={accounts:[{id:'agency:a1',name:'<script>bad</script>',balance_cents:'500',held_cents:'100'}],prices:{article_cents:100,image_cents:20,enabled:false},clients:[],orders:[],entries:[]};view='billing';render()",context);
+assert(app.innerHTML.includes('¥4.00'));assert(!app.innerHTML.includes('id="billing-recharge"'));assert(!app.innerHTML.includes('<script>bad</script>'));
+vm.runInContext("data.user.role='admin';render()",context);assert(app.innerHTML.includes('id="billing-recharge"'));assert(app.innerHTML.includes('id="billing-prices"'));
 console.log('PASS 代理商隐藏未授权菜单并阻止页面跳转，无网站账号可管理员工和查看视频规划');

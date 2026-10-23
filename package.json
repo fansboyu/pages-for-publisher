@@ -14,6 +14,7 @@
     "backup": "node scripts/backup.mjs",
     "test:pilot": "node tests/pilot.mjs",
     "test:frontend": "node tests/frontend.mjs",
+    "test:billing": "node tests/billing.mjs",
     "test:permissions": "node tests/permissions-ui.mjs",
     "test:ai": "node tests/ai-article.mjs",
     "test:alerts": "node tests/alerts.mjs",
