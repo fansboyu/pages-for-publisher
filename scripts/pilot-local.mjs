@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
@@ -11,6 +12,7 @@ await fs.mkdir(root,{recursive:true});const db=database();await migrate(db);awai
 function launch(cmd,args,env={}){const p=spawn(cmd,args,{cwd:project,env:{...process.env,...env},stdio:'inherit',windowsHide:true});children.push(p);p.on('error',console.error);return p}
 async function wait(url){for(let i=0;i<60;i++){try{if((await fetch(url,{headers:{Origin:new URL(url).origin}})).ok)return}catch{}await new Promise(r=>setTimeout(r,500))}throw Error('启动超时：'+url)}
 try{
+ process.env.PROVISIONER_TOKEN ||= randomBytes(32).toString('hex');process.env.PROVISIONER_URL ||= 'http://127.0.0.1:4431';if(new URL(process.env.PROVISIONER_URL).hostname==='127.0.0.1')launch(process.execPath,['provisioner/server.mjs']);
  const conf=join(root,'bootstrap.json'),caddyStorage={module:'file_system',root:join(root,'certificates')};await fs.writeFile(conf,JSON.stringify({admin:{listen:`127.0.0.1:${adminPort}`},storage:caddyStorage}));
  launch(process.execPath,['pilot/server.mjs']);launch(process.execPath,['pilot/worker.mjs']);launch(process.env.CADDY_BIN||join(project,'tools',process.platform==='win32'?'caddy.exe':'caddy'),['run','--config',conf],{APPDATA:join(root,'config'),XDG_CONFIG_HOME:join(root,'config')});await wait(base+'/health');await wait(`http://127.0.0.1:${adminPort}/config/`);
  const r=await fetch(base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:'Admin123!'})});if(!r.ok)throw Error('演示管理员登录失败，请单独运行API/Worker');const cookie=r.headers.get('set-cookie').split(';')[0];

@@ -14,6 +14,8 @@
     "backup": "node scripts/backup.mjs",
     "test:pilot": "node tests/pilot.mjs",
     "test:frontend": "node tests/frontend.mjs",
+    "provisioner": "node provisioner/server.mjs",
+    "test:provisioning": "node tests/provisioning.mjs",
     "test:billing": "node tests/billing.mjs",
     "test:permissions": "node tests/permissions-ui.mjs",
     "test:ai": "node tests/ai-article.mjs",
@@ -36,6 +38,7 @@
     "pg": "^8.23.1",
     "sanitize-html": "^2.18.1",
     "sharp": "^0.35.5",
+    "ssh2": "^1.17.0",
     "tar-stream": "^3.2.2",
     "yauzl": "^3.4.0"
   }

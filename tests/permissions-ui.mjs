@@ -18,3 +18,6 @@ vm.runInContext("data.permissions.pages.push('billing');billingData={accounts:[{
 assert(app.innerHTML.includes('¥4.00'));assert(!app.innerHTML.includes('id="billing-recharge"'));assert(!app.innerHTML.includes('<script>bad</script>'));
 vm.runInContext("data.user.role='admin';render()",context);assert(app.innerHTML.includes('id="billing-recharge"'));assert(app.innerHTML.includes('id="billing-prices"'));
 console.log('PASS 代理商隐藏未授权菜单并阻止页面跳转，无网站账号可管理员工和查看视频规划');
+
+vm.runInContext(await readFile(new URL('../public/provisioning-ui.js',import.meta.url),'utf8'),context);
+vm.runInContext("data.permissions.pages.push('provisioning');provisioningData={available:true,installAvailable:false,controlReady:false,jobs:[]};view='provisioning';render()",context);assert(app.innerHTML.includes('provision-form'));assert(app.innerHTML.includes('核对指纹'));

@@ -26,7 +26,7 @@ try {
     await new Promise(r=>setTimeout(r,250));
   }
   assert(ready, 'frontend ready');
-  for (const path of ['/', '/app.js', '/billing-ui.js', '/style.css', '/classic.css', '/editor.js', '/editor.css', '/deployment-ui.js', '/analytics-ui.js', '/pilot-ui.js', '/vendor/jodit.js', '/vendor/jodit.css']) {
+  for (const path of ['/', '/app.js', '/billing-ui.js', '/provisioning-ui.js', '/style.css', '/classic.css', '/editor.js', '/editor.css', '/deployment-ui.js', '/analytics-ui.js', '/pilot-ui.js', '/vendor/jodit.js', '/vendor/jodit.css']) {
     const r = await fetch(base+path); assert.equal(r.status,200,path); assert((await r.text()).length>20,path);
     assert.equal(r.headers.get('cache-control'),'no-cache');
   }

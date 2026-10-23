@@ -2,9 +2,11 @@
 
 本文件为后续维护者提供仓库地图和改造约束。当前本地版本为 **v1.3.5**，GitHub 上传待用户另行授权。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
 
-v1.3.5：角色页面权限见 `pilot/permissions.mjs`，员工账号状态迁移为 007，停用账号必须同时拒绝新登录并撤销旧会话。代理商状态响应不得包含 GEO Key。视频仅预留能力接口，不支持真实生成；SSH 自动安装未实现。范围和验证见 `docs/v1.3.5本地交付与范围.md`，页面权限回归为 `node tests/permissions-ui.mjs`。
+v1.3.5：角色页面权限见 `pilot/permissions.mjs`，员工账号状态迁移为 007，停用账号必须同时拒绝新登录并撤销旧会话。代理商状态响应不得包含 GEO Key。视频仅预留能力接口，不支持真实生成。标签后的 SSH 接入增量见 `docs/服务器自动接入与Provisioner.md`；不要将增量描述为原标签包含的功能。页面权限回归为 `node tests/permissions-ui.mjs`。
 
 ## 运行与验证
+
+SSH 接入本地增量：迁移 009，API 为 `pilot/provisioning.mjs`，独立执行器为 `provisioner/`，页面为 `public/provisioning-ui.js`。仅直营管理员、明确公网 IP 白名单、固定 SSH 指纹、预检后二次确认安装。只支持空闲 Ubuntu 22.04/24.04 x86_64 root/systemd；既有网站服务或保留端口占用必须阻止。SSH 凭据只在执行器内存暂存10分钟，不落库、不写日志。安装失败或状态不明不得自动重复安装。成功必须由主控验证 Agent 回连，不能仅凭 SSH 返回成功。专项测试 `npm run test:provisioning` 使用真实 SSH2/SFTP 协议，但远端 systemd 和回连是测试端模拟，不能作为真实云主机验收证据。
 
 人民币计费本地增量：迁移 008，核心 `pilot/billing.mjs`，前端 `public/billing-ui.js`，专项验证 `npm run test:billing`。余额以整数分保存，变更必须使用事务并保留追加式流水；图文必须先报价和预占后调用供应商。不得对超时订单自动释放或再次调用模型。原 v1.3.5 标签未移动；使用说明见 `docs/人民币计费使用与验收.md`。
 

@@ -43,7 +43,7 @@ services:
       SERVE_FRONTEND: "false"
     volumes: ["platform-data:/data", "./customer-templates:/imports:ro"]
     expose: ["3000"]
-    networks: ["edge", "backend"]
+    networks: ["edge", "backend", "provisioning"]
     depends_on:
       migrate: {condition: service_completed_successfully}
     restart: unless-stopped
@@ -70,9 +70,28 @@ services:
       redis: {condition: service_started}
     restart: unless-stopped
     networks: ["backend"]
+  provisioner:
+    profiles: ["provisioning"]
+    platform: linux/amd64
+    build: {context: ., dockerfile: provisioner/Dockerfile}
+    environment:
+      PROVISIONER_TOKEN: ${PROVISIONER_TOKEN:-}
+      PROVISIONER_ALLOWED_CIDRS: ${PROVISIONER_ALLOWED_CIDRS:-}
+      PROVISIONER_HOST: 0.0.0.0
+      PROVISIONER_PORT: "4431"
+    expose: ["4431"]
+    networks: ["provisioning"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 64
+    restart: unless-stopped
 networks:
   edge: {}
   backend: {}
+  provisioning: {}
 volumes:
   postgres-data: {}
   redis-data: {}
