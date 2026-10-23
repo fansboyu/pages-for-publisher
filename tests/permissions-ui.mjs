@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+const app={innerHTML:''},logout={};
+const context=vm.createContext({document:{querySelector:s=>s==='#app'?app:s==='#logout'?logout:null,querySelectorAll:()=>[]},window:{},console});
+const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
+vm.runInContext(source.slice(0,source.lastIndexOf('\nrefresh().catch')),context);
+vm.runInContext(`data={user:{id:'u2',role:'agency',name:'代理商'},permissions:{pages:['sites','team','video']},sites:[],agencies:[],articles:[],releases:[],logs:[],team:[]};view='api';render()`,context);
+assert(!app.innerHTML.includes('data-view="api"'));
+assert(!app.innerHTML.includes('data-view="infrastructure"'));
+assert(!app.innerHTML.includes('data-view="templates"'));
+assert.equal(vm.runInContext('view',context),'sites');
+vm.runInContext("view='team';render()",context);assert(app.innerHTML.includes('team-form'));
+vm.runInContext("view='video';render()",context);assert(app.innerHTML.includes('尚未开放生成'));
+vm.runInContext("view='articles';data.permissions.pages.push('articles');render()",context);assert(app.innerHTML.includes('暂无可用网站'));
+console.log('PASS 代理商隐藏未授权菜单并阻止页面跳转，无网站账号可管理员工和查看视频规划');
