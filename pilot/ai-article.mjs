@@ -67,13 +67,26 @@ async function aliyunImage(prompt){
  return {data:`data:image/webp;base64,${webp.toString('base64')}`,name:'阿里云AI配图.webp',mode:'aliyun'};
 }
 
+let aliyunImageQueue=Promise.resolve(),aliyunImageStartedAt=0;
+async function queuedAliyunImage(prompt){
+ const previous=aliyunImageQueue;let release;
+ aliyunImageQueue=new Promise(resolve=>release=resolve);
+ await previous;
+ try{
+  const wait=Math.max(0,1100-(Date.now()-aliyunImageStartedAt));
+  if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
+  aliyunImageStartedAt=Date.now();
+  return await aliyunImage(prompt);
+ }finally{release()}
+}
+
 export async function generateCover(article,site,input){
- if(aiImageMode()==='aliyun')return aliyunImage(`为企业官网文章制作封面图。企业：${site.client_name||site.name}；行业：${site.type}；主题：${words(input.topic)}；标题：${article.title}；地区：${words(input.region)}。${words(input.imageStyle)||'简洁、可信、专业的真实摄影风格'}，横版构图，主体明确，适合中文企业官网；画面中不要生成文字、标志、水印。`);
+ if(aiImageMode()==='aliyun')return queuedAliyunImage(`为企业官网文章制作封面图。企业：${site.client_name||site.name}；行业：${site.type}；主题：${words(input.topic)}；标题：${article.title}；地区：${words(input.region)}。${words(input.imageStyle)||'简洁、可信、专业的真实摄影风格'}，横版构图，主体明确，适合中文企业官网；画面中不要生成文字、标志、水印。`);
  const bytes=await sharp(svgCover(article.title,site.client_name||site.name,input.topic)).png().toBuffer();return {data:`data:image/png;base64,${bytes.toString('base64')}`,name:'文章主题配图.png',mode:'demo'};
 }
 
 export async function generateInlineImages(article,site,input){
  const count=Math.max(0,Math.min(3,Number(input.imageCount)||imageCount()));if(!count)return [];
  const plans=Array.from({length:count},(_,i)=>{const planned=article.imagePrompts[i],sectionIndex=Math.min(article.sections.length-1,Math.max(0,Number(planned?.sectionIndex??Math.round((i+1)*article.sections.length/(count+1))-1)));const section=article.sections[sectionIndex];return {sectionIndex,alt:words(planned?.alt)||`${section.heading}配图`,prompt:words(planned?.prompt)||`企业官网文章正文配图。行业：${site.type}；地区：${words(input.region)}；文章标题：${article.title}；对应小节：${section.heading}；内容：${section.html.replace(/<[^>]*>/g,' ').slice(0,400)}。${words(input.imageStyle)||'简洁、可信、专业的真实摄影风格'}，横版构图；不要文字、标志或水印。`}});
- return Promise.all(plans.map(async(plan,i)=>({...await (aiImageMode()==='aliyun'?aliyunImage(plan.prompt):generateCover({...article,title:plan.alt},site,{...input,topic:plan.alt})),...plan,index:i})));
+ return Promise.all(plans.map(async(plan,i)=>({...await (aiImageMode()==='aliyun'?queuedAliyunImage(plan.prompt):generateCover({...article,title:plan.alt},site,{...input,topic:plan.alt})),...plan,index:i})));
 }
