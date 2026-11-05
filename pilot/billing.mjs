@@ -13,24 +13,25 @@ export async function accountFor(db,site){
  await db.query('INSERT INTO billing_accounts(id,agency_id,client_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[accountId,direct?null:site.agency_id,direct?site.client_id:null]);
  return accountId;
 }
-export async function quote(db,user,siteId,input,demo){
+export async function quote(db,user,siteId,input,demo,service='article'){
  const site=await siteFor(db,user,siteId),prices=(await db.query('SELECT * FROM billing_prices WHERE id=1')).rows[0];
- const inline=Number(input.imageCount??2);if(![1,2,3].includes(inline))fail('正文配图数量仅支持1至3张');
- const snapshot={articleCents:prices.article_cents,imageCents:prices.image_cents,imageCount:inline+1,version:prices.version,demo,textModel:process.env.AI_TEXT_MODEL||'demo',imageModel:process.env.ALIYUN_IMAGE_MODEL||'demo'};
- const amount=demo?0:prices.article_cents+prices.image_cents*(inline+1);
+ const website=service==='website',inline=Number(input.imageCount??(website?0:2));if(!(website?[0,1]:[1,2,3]).includes(inline))fail(website?'建站配图数量仅支持0或1张':'正文配图数量仅支持1至3张');
+ const snapshot={...(website?{service:'website'}:{}),articleCents:prices.article_cents,imageCents:prices.image_cents,imageCount:website?inline:inline+1,version:prices.version,demo,textModel:process.env.AI_TEXT_MODEL||'demo',imageModel:process.env.ALIYUN_IMAGE_MODEL||'demo'};
+ const amount=demo?0:prices.article_cents+prices.image_cents*snapshot.imageCount;
  return {site,amountCents:amount,configured:prices.enabled,demo,price:snapshot};
 }
 async function ledger(c,account,order,kind,amount,actor,note,requestKey=null){
  const row=(await c.query('SELECT * FROM billing_accounts WHERE id=$1',[account])).rows[0];
  await c.query('INSERT INTO billing_ledger(account_id,order_id,kind,amount_cents,balance_cents,held_cents,actor,note,request_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[account,order,kind,amount,row.balance_cents,row.held_cents,actor,note,requestKey]);
 }
-export async function reserve(db,user,siteId,input,demo){
+export async function reserve(db,user,siteId,input,demo,onReserve){
  key(input.requestKey);
  const fingerprint=hash(JSON.stringify(Object.fromEntries(Object.entries(input).filter(([k])=>!['requestKey','quoteVersion','quotedAmountCents'].includes(k)).sort(([a],[b])=>a.localeCompare(b)))));
  return transaction(db,async c=>{
   // Serialise a site's duplicate requests, including concurrent first submissions.
   await c.query('SELECT pg_advisory_xact_lock(hashtext($1))',['billing:'+siteId]);
-  const q=await quote(c,user,siteId,input,demo);
+  if(onReserve)await siteFor(c,user,siteId,true);
+  const q=await quote(c,user,siteId,input,demo,onReserve?'website':'article');
   const old=(await c.query('SELECT * FROM billing_orders WHERE site_id=$1 AND request_key=$2',[siteId,input.requestKey])).rows[0];
   if(old){if(old.fingerprint!==fingerprint)fail('请求编号已用于不同参数',409);if(old.status==='charged')return {replay:old.result,order:old};if(old.status==='refunded')fail('原生成已退款，请使用新的请求编号重新报价',409);throw Object.assign(Error(old.status==='released'?'上次任务失败，请重新报价后提交新任务':'任务仍处理中或等待对账，请勿重复生成'),{status:409,billingStatus:old.status,billingOrderId:old.id})}
   if(!demo&&!q.configured)fail('请先由直营管理员配置并启用图文价格',503);
@@ -46,7 +47,9 @@ export async function reserve(db,user,siteId,input,demo){
   if(Number(wallet.balance_cents)-Number(wallet.held_cents)<q.amountCents)fail('可用余额不足，请联系直营管理员充值',402);
   const order=id('bill');await c.query('UPDATE billing_accounts SET held_cents=held_cents+$1 WHERE id=$2',[q.amountCents,account]);
   await c.query("INSERT INTO billing_orders(id,account_id,site_id,client_id,actor_id,request_key,fingerprint,amount_cents,price_snapshot,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'held')",[order,account,siteId,q.site.client_id,user.id,input.requestKey,fingerprint,q.amountCents,q.price]);
-  await ledger(c,account,order,'hold',q.amountCents,user.name,'图文生成费用预占');return {order:{id:order,amount_cents:q.amountCents},site:q.site};
+  await ledger(c,account,order,'hold',q.amountCents,user.name,q.price.service==='website'?'智能建站费用预占':'图文生成费用预占');
+  if(onReserve)await onReserve(c,order,q.site);
+  return {order:{id:order,amount_cents:q.amountCents},site:q.site};
  });
 }
 // Caller may use its article transaction so article persistence and charging are atomic.

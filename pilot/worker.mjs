@@ -9,11 +9,13 @@ import { packWebsite } from './archive.mjs';
 import { enqueueDeploy } from './publishing.mjs';
 import { gzipSync } from 'node:zlib';
 import { checkAndSendAlerts } from './alerts.mjs';
+import { processWebsiteJob } from './website-builder.mjs';
 const db=database(),store=createStorage(dataRoot());await checkDatabase(db);
 if(!process.env.REDIS_URL)throw Error('REDIS_URL 必填');
 const connection=new Redis(process.env.REDIS_URL,{maxRetriesPerRequest:null,retryStrategy:n=>Math.min(n*500,5000)});connection.on('error',e=>console.error('Redis:',e.message));
 const queueName=process.env.BUILD_QUEUE_NAME||'website-builds-v2',queue=new Queue(queueName,{connection});
-let closing=false,dispatching=false;
+let closing=false,dispatching=false,websiteRunning=null;
+function dispatchWebsite(){if(closing||websiteRunning)return;websiteRunning=processWebsiteJob(db,store).catch(e=>console.error('智能建站任务:',e.message)).finally(()=>{websiteRunning=null})}
 async function dispatch(){if(dispatching||closing)return;dispatching=true;try{
  await db.query("UPDATE build_jobs SET status='queued',error='Worker租约过期，等待重试' WHERE status='building' AND lease_until<now()");
  const jobs=(await db.query("SELECT id FROM build_jobs WHERE status='queued' ORDER BY created_at LIMIT 100")).rows;
@@ -41,5 +43,5 @@ const worker=new Worker(queueName,async(job,queueToken)=>{
  }catch(e){if(e instanceof DelayedError)throw e;const attempts=(await db.query('SELECT attempts FROM build_jobs WHERE id=$1',[row.id])).rows[0]?.attempts||0,terminal=attempts>=3||job.attemptsMade+1>=3;await db.query('UPDATE build_jobs SET status=$1,error=$2,lease_until=NULL WHERE id=$3',[terminal?'failed':'queued',e.message,row.id]);await db.query('UPDATE releases SET status=$1,error=$2 WHERE id=$3',[terminal?'failed':'queued',e.message,row.release_id]);throw e}
  finally{clearInterval(pulse);if(acquired)await c.query('SELECT pg_advisory_unlock(hashtext($1))',['build:'+row.site_id]);c.release()}
 },{connection,concurrency:Number(process.env.BUILD_CONCURRENCY||2),lockDuration:60000});worker.on('error',e=>console.error('Worker:',e.message));worker.on('failed',(job,e)=>console.error('Build failed:',job?.id,e.message));
-const timer=setInterval(dispatch,2000),alertTimer=setInterval(()=>checkAndSendAlerts(db).catch(e=>console.error('告警检查失败:',e.message)),Number(process.env.ALERT_POLL_MS||60000));await dispatch();await checkAndSendAlerts(db).catch(e=>console.error('告警检查失败:',e.message));console.log('Independent build Worker ready');
-async function stop(){if(closing)return;closing=true;clearInterval(timer);clearInterval(alertTimer);await worker.close();await queue.close();await connection.quit();await db.end()};process.on('SIGINT',()=>stop().then(()=>process.exit()));process.on('SIGTERM',()=>stop().then(()=>process.exit()));
+const timer=setInterval(()=>{dispatch();dispatchWebsite()},2000),alertTimer=setInterval(()=>checkAndSendAlerts(db).catch(e=>console.error('告警检查失败:',e.message)),Number(process.env.ALERT_POLL_MS||60000));await dispatch();dispatchWebsite();await checkAndSendAlerts(db).catch(e=>console.error('告警检查失败:',e.message));console.log('Independent build Worker ready');
+async function stop(){if(closing)return;closing=true;clearInterval(timer);clearInterval(alertTimer);if(websiteRunning)await websiteRunning;await worker.close();await queue.close();await connection.quit();await db.end()};process.on('SIGINT',()=>stop().then(()=>process.exit()));process.on('SIGTERM',()=>stop().then(()=>process.exit()));

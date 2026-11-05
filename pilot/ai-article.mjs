@@ -30,6 +30,13 @@ export function aiMode(){return textApiKey()&&process.env.AI_TEXT_MODEL?'provide
 export function aiImageMode(){return imageApiKey()&&imageModel()?'aliyun':'demo'}
 export function configuredInlineImageCount(){return imageCount()}
 
+// Shared provider adapter. Callers supply their own schema and validate its result.
+export async function generateStructuredContent(system,input){
+ if(aiMode()!=='provider')throw Error('文字模型尚未配置');
+ const response=await fetchJson(`${textBaseUrl()}/chat/completions`,{method:'POST',headers:{Authorization:`Bearer ${textApiKey()}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.AI_TEXT_MODEL,max_tokens:Math.max(2048,Math.min(12000,Number(process.env.AI_TEXT_MAX_TOKENS)||8192)),temperature:0.5,response_format:{type:'json_object'},messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}]})});
+ return parseJson(response.choices?.[0]?.message?.content);
+}
+
 export async function generateArticle(site,input){
  const mode=aiMode();let article;
  if(mode==='provider'){
@@ -83,6 +90,13 @@ async function queuedAliyunImage(prompt){
 export async function generateCover(article,site,input){
  if(aiImageMode()==='aliyun')return queuedAliyunImage(`为企业官网文章制作封面图。企业：${site.client_name||site.name}；行业：${site.type}；主题：${words(input.topic)}；标题：${article.title}；地区：${words(input.region)}。${words(input.imageStyle)||'简洁、可信、专业的真实摄影风格'}，横版构图，主体明确，适合中文企业官网；画面中不要生成文字、标志、水印。`);
  const bytes=await sharp(svgCover(article.title,site.client_name||site.name,input.topic)).png().toBuffer();return {data:`data:image/png;base64,${bytes.toString('base64')}`,name:'文章主题配图.png',mode:'demo'};
+}
+
+export async function generateWebsiteHero(spec,site,input){
+ if(aiImageMode()==='aliyun')return queuedAliyunImage(`为企业官网首页生成主视觉图片。企业：${words(site.client_name||site.name)}；行业：${words(site.type)}；网站主题：${words(spec.hero.title)}；页面介绍：${words(spec.hero.subtitle)}；地区：${words(site.region)}。${words(input.imageStyle)||'专业、自然、可信的真实摄影风格'}。图片作为网站首页横版主视觉，突出企业业务相关场景，构图干净；不要文字、标志或水印。`);
+ const color=/^#[a-f\d]{6}$/i.test(spec.accent)?spec.accent:'#2563eb';
+ const svg=`<svg width="1200" height="900" viewBox="0 0 1200 900" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${color}"/><stop offset="1" stop-color="#0e293f"/></linearGradient></defs><rect width="1200" height="900" fill="url(#bg)"/><circle cx="1070" cy="70" r="340" fill="#fff" opacity=".08"/><circle cx="100" cy="900" r="380" fill="#fff" opacity=".06"/><g transform="translate(135,170) rotate(-6 460 290)"><rect x="15" y="25" width="930" height="590" rx="28" fill="#092031" opacity=".2"/><rect width="930" height="590" rx="24" fill="#f4f8fc"/><rect width="930" height="60" rx="24" fill="#fff"/><circle cx="33" cy="30" r="7" fill="#efb0a4"/><circle cx="58" cy="30" r="7" fill="#e8d49b"/><circle cx="83" cy="30" r="7" fill="#9ad4ba"/><rect x="620" y="23" width="70" height="12" rx="6" fill="#dce7ef"/><rect x="715" y="23" width="70" height="12" rx="6" fill="#dce7ef"/><rect x="810" y="23" width="70" height="12" rx="6" fill="#dce7ef"/><rect x="50" y="115" width="330" height="28" rx="8" fill="${color}"/><rect x="50" y="166" width="405" height="19" rx="7" fill="#c4d3df"/><rect x="50" y="200" width="310" height="19" rx="7" fill="#d8e3eb"/><rect x="50" y="260" width="140" height="44" rx="10" fill="${color}"/><rect x="520" y="105" width="360" height="215" rx="18" fill="${color}" opacity=".13"/><circle cx="700" cy="210" r="65" fill="${color}" opacity=".55"/><path d="M570 285L650 205L720 260L780 190L850 285Z" fill="${color}" opacity=".75"/><g fill="#fff"><rect x="50" y="375" width="260" height="155" rx="16"/><rect x="335" y="375" width="260" height="155" rx="16"/><rect x="620" y="375" width="260" height="155" rx="16"/></g><g fill="${color}" opacity=".65"><rect x="78" y="402" width="42" height="36" rx="9"/><rect x="363" y="402" width="42" height="36" rx="9"/><rect x="648" y="402" width="42" height="36" rx="9"/></g><g fill="#d9e4ec"><rect x="78" y="460" width="175" height="12" rx="6"/><rect x="363" y="460" width="175" height="12" rx="6"/><rect x="648" y="460" width="175" height="12" rx="6"/><rect x="78" y="487" width="130" height="10" rx="5"/><rect x="363" y="487" width="130" height="10" rx="5"/><rect x="648" y="487" width="130" height="10" rx="5"/></g></g></svg>`;
+ const bytes=await sharp(Buffer.from(svg)).png().toBuffer();return {data:`data:image/png;base64,${bytes.toString('base64')}`,name:'网站首页演示配图.png',mode:'demo'};
 }
 
 export async function generateInlineImages(article,site,input){

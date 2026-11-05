@@ -1,4 +1,5 @@
 import { provisioningRoute,reconcileProvisioning } from './provisioning.mjs';
+import { websiteBuilderRoute } from './website-builder.mjs';
 import * as billing from './billing.mjs';
 import { permissionsFor } from './permissions.mjs';
 import http from 'node:http';
@@ -19,7 +20,7 @@ import { generateArticle,generateCover,generateInlineImages,aiMode,aiImageMode,c
 const db=database(),store=createStorage(dataRoot());await checkDatabase(db);await seed(db);
 let provisionReconciling=false;const provisionTimer=setInterval(async()=>{if(provisionReconciling)return;provisionReconciling=true;try{await reconcileProvisioning(db)}catch{console.error('Provisioner任务状态同步暂不可用')}finally{provisionReconciling=false}},5000);provisionTimer.unref();
 const iso=d=>d?.toISOString?.()||d;
-const publicFiles={'/provisioning-ui.js':'provisioning-ui.js','/billing-ui.js':'billing-ui.js','/':'index.html','/app.js':'app.js','/style.css':'style.css','/classic.css':'classic.css','/editor.js':'editor.js','/editor.css':'editor.css','/deployment-ui.js':'deployment-ui.js','/analytics-ui.js':'analytics-ui.js','/templates-ui.js':'templates-ui.js','/pilot-ui.js':'pilot-ui.js','/vendor/jodit.js':'../node_modules/jodit/es2021/jodit.fat.min.js','/vendor/jodit.css':'../node_modules/jodit/es2021/jodit.min.css'};
+const publicFiles={'/website-builder-ui.js':'website-builder-ui.js','/website-builder.css':'website-builder.css','/provisioning-ui.js':'provisioning-ui.js','/billing-ui.js':'billing-ui.js','/':'index.html','/app.js':'app.js','/style.css':'style.css','/classic.css':'classic.css','/editor.js':'editor.js','/editor.css':'editor.css','/deployment-ui.js':'deployment-ui.js','/analytics-ui.js':'analytics-ui.js','/templates-ui.js':'templates-ui.js','/pilot-ui.js':'pilot-ui.js','/vendor/jodit.js':'../node_modules/jodit/es2021/jodit.fat.min.js','/vendor/jodit.css':'../node_modules/jodit/es2021/jodit.min.css'};
 const rate=new Map();
 function billingDemo(){const text=aiMode()==='provider',image=aiImageMode()==='aliyun';if(text!==image)fail('请同时配置真实文字和图片模型，避免对混合演示内容收费',503);return !text}
 function rateLimit(key,max,ms){const now=Date.now(),r=rate.get(key);if(!r||r.until<now){rate.set(key,{count:1,until:now+ms});return}if(++r.count>max)fail('请求频率过高，请稍后再试',429);if(rate.size>5000)for(const [k,v]of rate)if(v.until<now)rate.delete(k)}
@@ -83,6 +84,7 @@ const server=http.createServer(async(req,res)=>{try{
  if(path.startsWith('/api/')){
   const user=await auth(req);if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('请求来源不允许',403);
   if(path==='/api/state')return json(res,await stateFor(user));
+  if(/^\/api\/sites\/[^/]+\/website(?:\/|$)/.test(path)){rateLimit('website:'+user.id,180,60000);if(req.method==='POST')rateLimit('website-write:'+user.id,30,60000);if(await websiteBuilderRoute(db,user,req,res,path))return}
   if(path.startsWith('/api/provisioning')){rateLimit('provisioning:'+user.id,600,60000);if(req.method==='POST')rateLimit('provisioning-write:'+user.id,10,60000);if(await provisioningRoute(db,user,req,res,path))return}
   if(path==='/api/billing'){if(req.method==='GET')return json(res,await billing.dashboard(db,user));if(req.method==='POST')return json(res,await billing.manage(db,user,await body(req)));fail('方法不允许',405)}
   const quoteMatch=path.match(/^\/api\/sites\/([^/]+)\/ai-quote$/);if(quoteMatch){if(req.method!=='POST')fail('请使用POST',405);const q=await billing.quote(db,user,quoteMatch[1],{imageCount:configuredInlineImageCount(),...await body(req)},billingDemo());return json(res,{amountCents:q.amountCents,configured:q.configured,demo:q.demo,price:q.price})}
@@ -138,7 +140,7 @@ const server=http.createServer(async(req,res)=>{try{
   const m=path.match(/^\/api\/sites\/([^/]+)\/(content|articles|publish|rollback|media)$/);if(!m)fail('接口不存在',404);const site=await siteFor(db,user,m[1]);
   if(m[2]==='publish')return json(res,await enqueuePublish(db,user,site.id),202);
   if(m[2]==='rollback')return json(res,await rollback(db,user,site.id,b.id),202);
-  if(m[2]==='content'){const content=contentFields(b);await transaction(db,async c=>{await c.query('UPDATE sites SET content=content||$1::jsonb,revision=revision+1 WHERE id=$2',[JSON.stringify(content),site.id]);await audit(c,site.id,user.name,'保存官网内容草稿')});return json(res,{ok:true})}
+  if(m[2]==='content'){const content=contentFields(b);await transaction(db,async c=>{const current=await siteFor(c,user,site.id,true);if(current.content?.builder){const builder=structuredClone(current.content.builder);if(Object.hasOwn(content,'title'))builder.hero.title=content.title;if(Object.hasOwn(content,'intro'))builder.hero.subtitle=content.intro;content.builder=builder}await c.query('UPDATE sites SET content=content||$1::jsonb,revision=revision+1 WHERE id=$2',[JSON.stringify(content),site.id]);await audit(c,site.id,user.name,'保存官网内容草稿')});return json(res,{ok:true})}
   if(m[2]==='articles'){await transaction(db,async c=>{await c.query('SELECT id FROM sites WHERE id=$1 FOR UPDATE',[site.id]);if(b.remove){if(!(await c.query('DELETE FROM articles WHERE id=$1 AND site_id=$2',[b.id,site.id])).rowCount)fail('文章不存在',404);await c.query('UPDATE sites SET revision=revision+1 WHERE id=$1',[site.id])}else await saveArticle(c,site,b);await audit(c,site.id,user.name,b.remove?'删除文章':'保存文章')});return json(res,{ok:true})}
   if(m[2]==='media'){const item=await store.image(site.id,b);await db.query('INSERT INTO media(id,site_id,name,object_key,url,size,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',[item.id,site.id,item.name,item.key,item.url,item.size,item]);return json(res,item)}
  }

@@ -1,6 +1,6 @@
-# AGENTS.md — 数告星发布中心 v1.3.8
+# AGENTS.md — 数告星发布中心 v1.3.9
 
-本文件为后续维护者提供仓库地图和改造约束。当前本地版本为 **v1.3.8**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
+本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.3.9**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
 
 v1.3.5：角色页面权限见 `pilot/permissions.mjs`，员工账号状态迁移为 007，停用账号必须同时拒绝新登录并撤销旧会话。代理商状态响应不得包含 GEO Key。视频仅预留能力接口，不支持真实生成。标签后的 SSH 接入增量见 `docs/服务器自动接入与Provisioner.md`；不要将增量描述为原标签包含的功能。页面权限回归为 `node tests/permissions-ui.mjs`。
 
@@ -24,6 +24,8 @@ SSH 接入本地增量：迁移 009，API 为 `pilot/provisioning.mjs`，独立�
 完整部署和运行说明见 `docs/正式试点版架构与运行.md`、`docs/deployment.md`。AI 配置见 `docs/AI图文创作配置.md`；Agent 与客户现有 Caddy 共存见 `docs/客户Agent与现有Caddy共存.md`。
 
 ## 系统结构
+
+本地智能建站增量：迁移011，`pilot/website-builder.mjs` 管理独立草稿、历史、生成任务与权限；`pilot/ai-website.mjs` 负责受控JSON生成；`pilot/website-renderer.mjs` 统一渲染预览与发布页面；`public/website-builder-ui.js` 为控制台入口。现有Worker轮询持久化建站任务，不新增容器。官网正式草稿保存在 `sites.content.builder`，生成草稿须显式应用后才进入原发布快照。建站沿用一次文章文字单价及0/1张图片单价；预占、任务登记同事务，草稿持久化与扣款同事务；Worker失联不得自动重发供应商请求。运行 `npm run test:website`，说明见 `docs/AI智能建站简易版.md`。该功能纳入v1.3.9；生产部署状态需独立核实。
 
 - `pilot/server.mjs`：控制台 HTTP 服务、鉴权、管理 API、AI 文章生成入口及自动发布编排。
 - `pilot/worker.mjs`、`pilot/publishing.mjs`：BullMQ 后台队列、站点构建、发布版本与回滚。
@@ -71,3 +73,5 @@ DeepSeek 和百炼配置必须彼此独立。至少需要 `AI_TEXT_BASE_URL`、`
 - 可设置 `BACKUP_DIR`、`BACKUP_RETENTION_COUNT`、`BACKUP_COMPOSE_FILE`、`BACKUP_COMPOSE_ENV_FILE`、`BACKUP_DATA_ROOT`、`DOCKER_BIN`。设置 `BACKUP_DATA_ROOT` 时直接归档该目录，否则从运行中的 API 容器读取 `/data`。
 - 设置 `ALERT_WEBHOOK_URL` 后，Worker 每分钟检查构建失败、部署失败及绑定站点的 Agent 离线；相同事件按 `ALERT_COOLDOWN_MINUTES` 抑制重复发送，Agent 恢复后清除离线抑制。
 - 本地备份不等于异地备份。生产应将备份复制到独立存储并定期在隔离环境验证恢复。
+
+官网协议v2本地增量：pilot/website-protocol.mjs定义规则和最终产物检查，v1/v1.1兼容；AI建站首页文章区和列表详情共用website-renderer，文章路径沿用绑定模板。文档docs/官网协议-v2.md，验证node tests/website-protocol.mjs。不新增迁移、容器或版本标签。

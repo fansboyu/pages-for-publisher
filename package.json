@@ -1,6 +1,6 @@
 {
   "name": "website-control-local",
-  "version": "1.3.8",
+  "version": "1.3.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,13 +19,15 @@
     "test:billing": "node tests/billing.mjs",
     "test:permissions": "node tests/permissions-ui.mjs",
     "test:ai": "node tests/ai-article.mjs",
+    "test:website": "node tests/website-builder.mjs",
     "test:alerts": "node tests/alerts.mjs",
     "test:multi-site": "node tests/multi-site.mjs",
     "frontend:local": "docker compose -f compose.frontend-local.yml up -d --build",
     "dev:legacy": "node scripts/local.mjs",
     "start:legacy": "node server.mjs",
     "infra": "node scripts/pilot-infra.mjs",
-    "test:templates": "node tests/template-upload.mjs"
+    "test:templates": "node tests/template-upload.mjs",
+    "test:website-protocol": "node tests/website-protocol.mjs"
   },
   "engines": {
     "node": ">=24"
