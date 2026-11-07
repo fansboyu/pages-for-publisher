@@ -2,3 +2,5 @@
 
 /* Render a real desktop viewport even when the studio preview column is narrow. */
 .builder-preview-stage:not(.mobile){height:670px;min-height:0;overflow:hidden}.builder-preview-stage:not(.mobile) iframe{width:1200px;max-width:none;height:calc(650px / var(--builder-scale,1));transform:scale(var(--builder-scale,1));transform-origin:top left}
+
+.builder-chat{border-top:1px solid #e1e9ef;padding-top:16px;margin:16px 0}.builder-chat-log{max-height:340px;overflow:auto;overscroll-behavior:contain;padding:6px}.builder-chat-message{padding:12px;margin:10px 0;border:1px solid #dce6ee;border-radius:12px;background:#f5f8fb;overflow-wrap:anywhere}.builder-chat-message.user{background:#e8f5ef;margin-left:24px}.builder-chat-message.assistant{margin-right:12px}.builder-chat-message p{white-space:pre-wrap;margin:6px 0;font-size:13px}.builder-chat-message small{color:#678095}.builder-chat-error{color:#b54731}.builder-change{border-top:1px solid #dce6ee;padding-top:8px;margin-top:8px}.builder-change p{font-size:12px}

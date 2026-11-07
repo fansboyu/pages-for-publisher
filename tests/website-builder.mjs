@@ -40,6 +40,13 @@ try{
  console.log('PASS 受控模块、自然语言演示修改、配色与输出转义');
  await startAPI();const agency=await login('agency','Agency123!'),partner=await login('partner','Partner123!');
  assert((await req('state',undefined,agency)).permissions.pages.includes('builder'));
+ assert.equal((await fetch(base+'/api/workspace')).status,401);const agencyState=await req('state',undefined,agency),agencyId=agencyState.user.agency;
+ const ownSite=(await pool.query('SELECT s.id FROM sites s JOIN clients c ON c.id=s.client_id WHERE c.agency_id=$1 LIMIT 1',[agencyId])).rows[0].id;
+ const otherSite=(await pool.query('SELECT s.id FROM sites s JOIN clients c ON c.id=s.client_id WHERE c.agency_id<>$1 LIMIT 1',[agencyId])).rows[0].id;
+ await pool.query("INSERT INTO site_analytics_daily(site_id,visit_date,pageviews,unique_visitors) VALUES($1,(now() AT TIME ZONE 'Asia/Shanghai')::date,303,1),($2,(now() AT TIME ZONE 'Asia/Shanghai')::date,606,1)",[ownSite,otherSite]);
+ assert.equal((await req('workspace',undefined,agency)).pageviews,303);assert.equal((await req('workspace')).pageviews,909);assert.equal((await req('workspace')).spentCents,0);assert.equal((await req('workspace')).availableCents,0);assert.equal((await fetch(base+'/workspace-ui.js')).status,200);assert.equal((await fetch(base+'/assets/workspace-hero.webp')).headers.get('content-type'),'image/webp');
+ console.log('PASS 工作台聚合数据鉴权、代理商隔离、真实零值与本地插画资源');
+
  await assert.rejects(req(path,undefined,partner),e=>e.status===403);await assert.rejects(req(path+'/apply',{revision:1,siteRevision:0},partner),e=>e.status===403);
  assert.equal((await fetch(base+'/website-builder-ui.js')).status,200);assert.equal((await fetch(base+'/website-builder.css')).status,200);
  await req('clients/c1/knowledge',{category:'产品与服务',title:'服务范围',content:'提供上海浦东家庭日常保洁预约服务。',terms:'浦东保洁'});
@@ -76,5 +83,15 @@ try{
  fixtureMode='invalid';const invalid=await queue({instruction:'无效返回测试',theme:'business',imageCount:0,revision:3});await processWebsiteJob(pool,store);assert.equal((await req(path)).jobs.find(x=>x.id===invalid.jobId).status,'failed');wallet=(await pool.query("SELECT balance_cents,held_cents FROM billing_accounts WHERE id='agency:a1'")).rows[0];assert.equal(Number(wallet.balance_cents),90);assert.equal(Number(wallet.held_cents),0);
  fixtureMode='timeout';const timed=await queue({instruction:'超时测试',theme:'business',imageCount:0,revision:3});await processWebsiteJob(pool,store);assert.equal((await req(path)).jobs.find(x=>x.id===timed.jobId).status,'review');wallet=(await pool.query("SELECT balance_cents,held_cents FROM billing_accounts WHERE id='agency:a1'")).rows[0];assert.equal(Number(wallet.balance_cents),90);assert.equal(Number(wallet.held_cents),10);const calls=fixtureCalls;await processWebsiteJob(pool,store);assert.equal(fixtureCalls,calls);
  console.log('PASS 模型接口契约与知识库上下文、真实计费模拟、无效结果释放、超时冻结并停止自动重试');
+
+ const history=await req(path);assert(history.messages.some(m=>m.role==='user'&&m.status==='review'));assert(history.messages.some(m=>m.role==='assistant'&&m.changes.length));
+ const promptInput=JSON.parse(lastPrompt.messages.at(-1).content);assert(promptInput.conversation.recent.length);assert.equal(promptInput.target,'all');
+ const pendingOrder=(await pool.query('SELECT order_id FROM website_builder_jobs WHERE id=$1',[timed.jobId])).rows[0].order_id;await req('billing',{action:'resolve',order:pendingOrder,decision:'release',note:'对话测试解除冻结'});
+ fixtureMode='valid';providerSpec.accent='#123456';providerSpec.hero.title='越界修改不应生效';const beforeScope=await req(path);
+ await queue({instruction:'只调整配色',target:'appearance',theme:'warm',imageCount:0,revision:beforeScope.draft.revision});await processWebsiteJob(pool,store);const afterScope=await req(path);assert.equal(afterScope.draft.spec.accent,'#123456');assert.equal(afterScope.draft.spec.hero.title,beforeScope.draft.spec.hero.title);assert(afterScope.messages.at(-1).changes.every(c=>['accent','theme'].includes(c.field)));
+ await assert.rejects(req(path+'/undo',{revision:afterScope.draft.revision},partner),e=>e.status===403);await assert.rejects(req(path+'/undo',{revision:0}),e=>e.status===409);
+ const beforeUndoBalance=(await pool.query("SELECT balance_cents FROM billing_accounts WHERE id='agency:a1'")).rows[0].balance_cents;await req(path+'/undo',{revision:afterScope.draft.revision});const undone=await req(path);assert.deepEqual(undone.draft.spec,beforeScope.draft.spec);assert.equal(undone.draft.revision,afterScope.draft.revision+1);assert.equal((await pool.query("SELECT balance_cents FROM billing_accounts WHERE id='agency:a1'")).rows[0].balance_cents,beforeUndoBalance);
+ await stopAPI();await startAPI(provider);assert.equal((await req(path)).messages.length,undone.messages.length);await assert.rejects(req(path,undefined,partner),e=>e.status===403);
+ console.log('PASS 持久对话与失败状态、真实接口上下文、局部修改范围保护、免费撤销、版本冲突和跨客户隔离');
  console.log('All website builder checks passed. '+root);
 }finally{await stopAPI();if(fixture){fixture.closeAllConnections();await new Promise(r=>fixture.close(r))}await pool.end();await maintenance.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1',[name]);await maintenance.query(`DROP DATABASE "${name}"`);await maintenance.end()}

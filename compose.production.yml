@@ -70,6 +70,20 @@ services:
       redis: {condition: service_started}
     restart: unless-stopped
     networks: ["backend"]
+  external-worker:
+    profiles: ["external"]
+    build: {context: ., dockerfile: pilot/Dockerfile}
+    command: ["node", "pilot/external-worker.mjs"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sitecontrol:${POSTGRES_PASSWORD}@postgres:5432/sitecontrol
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      DATA_ROOT: /data
+    volumes: ["platform-data:/data"]
+    networks: ["backend"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
   provisioner:
     profiles: ["provisioning"]
     platform: linux/amd64

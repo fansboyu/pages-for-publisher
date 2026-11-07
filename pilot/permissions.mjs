@@ -1,5 +1,5 @@
 export function permissionsFor(user){
- const pages=['sites','builder','analytics','articles','ai','video','knowledge','content','media','releases','clients','team','billing'];
+ const pages=['geoquery','dashboard','external','sites','builder','analytics','articles','ai','video','knowledge','content','media','releases','clients','team','billing'];
  if(user.role==='admin')pages.push('api','templates','infrastructure','provisioning');
  return {pages,manageInfrastructure:user.role==='admin',manageGeoKeys:user.role==='admin',manageTeam:true};
 }

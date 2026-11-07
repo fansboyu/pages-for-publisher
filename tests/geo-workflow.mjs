@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import pg from 'pg';
+import {localEnv} from '../scripts/pilot-env.mjs';
+import {migrate,project} from '../pilot/db.mjs';
+import {seed} from '../pilot/seed.mjs';
+import {geoAction,processGeoJob} from '../pilot/geo-workflow.mjs';
+import {geoQueryRoute} from '../pilot/geo-query.mjs';
+import {accountFor,manage} from '../pilot/billing.mjs';
+import {geoProvider,publicAddress,publicUrl} from '../pilot/geo-provider.mjs';
+import {createStorage} from '../storage-adapter.mjs';
+import sharp from 'sharp';
+process.env.DEMO_MODE='true';process.env.GEO_QUERY_MODE='live';process.env.XIAOQINGWA_API_KEY='test-only-key';process.env.DATA_ROOT=project+'/storage/geo-tests/'+Date.now();
+const env=await localEnv(),maintenance=new pg.Pool({connectionString:env.DATABASE_URL}),name='geo_test_'+Date.now();await maintenance.query(`CREATE DATABASE "${name}"`);const url=new URL(env.DATABASE_URL);url.pathname='/'+name;const db=new pg.Pool({connectionString:url.href});
+try{
+ await migrate(db);await migrate(db);await seed(db);
+ const admin=(await db.query("SELECT * FROM users WHERE username='admin'")).rows[0],partner=(await db.query("SELECT * FROM users WHERE username='partner'")).rows[0],site=(await db.query("SELECT s.*,c.agency_id FROM sites s JOIN clients c ON c.id=s.client_id WHERE s.id='s1'")).rows[0];
+ const account=await accountFor(db,site);await manage(db,admin,{action:'recharge',account,amount:'100',note:'isolated GEO workflow test',requestKey:crypto.randomUUID()});
+ await assert.rejects(geoAction(db,partner,{action:'prices',unit:'0.20',enabled:true}),e=>e.status===403);
+ await geoAction(db,admin,{action:'prices',unit:'0.20',enabled:true});
+ const input={action:'quote',site:'s1',brand:'测试品牌',question:'企业官网系统有哪些？',platforms:[1,2,4],mode:'live'};
+ await assert.rejects(geoAction(db,partner,input),e=>e.status===403);await assert.rejects(geoAction(db,admin,{...input,platforms:[7]}),e=>e.status===400);
+ const q=await geoAction(db,admin,input);assert.equal(q.amountCents,60);
+ const submission={action:'submit',site:'s1',quoteId:q.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:60};
+ await assert.rejects(geoAction(db,admin,{...submission,confirmedAmountCents:1}),e=>e.status===409);
+ const [created,replay]=await Promise.all([geoAction(db,admin,submission),geoAction(db,admin,submission)]);assert.equal(created.rows.length,3);assert.deepEqual(created.rows.map(t=>t.id),replay.rows.map(t=>t.id));assert.equal(Number((await db.query('SELECT held_cents FROM billing_accounts WHERE id=$1',[account])).rows[0].held_cents),60);
+ let submits=0,polls=0,archives=0,archiveFail=true;
+ const provider={async submit(t){submits++;return 'provider-'+t.id},async poll(t){polls++;return {status:t.platform===4?3:t.platform===1?1:2,matchedWord:t.platform===1?'测试品牌':'',shareUrl:'https://example.com/share',screenshotUrl:t.platform===1?'https://example.com/result.png':''}}};
+ const storage=createStorage(process.env.DATA_ROOT),image=await sharp({create:{width:16,height:12,channels:3,background:'#217dda'}}).png().toBuffer();
+ const archive=async t=>{archives++;if(archiveFail){archiveFail=false;throw Error('simulated storage error')}return storage.image(t.site_id,{name:'query.png',data:'data:image/png;base64,'+image.toString('base64')})};
+ async function drain(options={}){for(let i=0;i<30;i++){await db.query("UPDATE geo_query_tasks SET next_run_at=now() WHERE phase IN ('submit','poll','archive')");if(!await processGeoJob(db,{provider,archive,...options}))break}}
+ await drain();assert.equal(submits,3);assert.equal(polls,3);assert.equal(archives,2);
+ const tasks=(await db.query('SELECT * FROM geo_query_tasks WHERE quote_id=$1 ORDER BY platform',[q.quoteId])).rows;assert.deepEqual(tasks.map(t=>t.status),['hit','miss','failed']);assert.equal(tasks[0].archive_state,'saved');assert(tasks[0].screenshot_url.startsWith('/objects/media/'));assert.equal(tasks[1].archive_state,'unavailable');
+ const wallet=(await db.query('SELECT * FROM billing_accounts WHERE id=$1',[account])).rows[0];assert.equal(Number(wallet.balance_cents),9960);assert.equal(Number(wallet.held_cents),0);assert.equal((await db.query("SELECT count(*) n FROM billing_ledger WHERE kind='charge'")).rows[0].n,'2');
+ await drain();assert.equal(submits,3);assert.equal(polls,3);
+ const one=async()=>{const q=await geoAction(db,admin,{...input,platforms:[1]});return (await geoAction(db,admin,{action:'submit',site:'s1',quoteId:q.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:20})).rows[0]};
+ const uncertain=await one();let unknownCalls=0;await processGeoJob(db,{provider:{...provider,async submit(){unknownCalls++;throw Error('network timeout')}}});await drain();assert.equal(unknownCalls,1);assert.equal((await db.query('SELECT phase FROM geo_query_tasks WHERE id=$1',[uncertain.id])).rows[0].phase,'review');
+ const stale=await one();await db.query("UPDATE geo_query_tasks SET phase='submitting',lease_until=now()-interval '1 second' WHERE id=$1",[stale.id]);await processGeoJob(db,{provider,archive});assert.equal((await db.query('SELECT status FROM geo_query_tasks WHERE id=$1',[stale.id])).rows[0].status,'review');
+ const expired=await geoAction(db,admin,{...input,platforms:[1]});await db.query("UPDATE geo_query_quotes SET expires_at=now()-interval '1 second' WHERE id=$1",[expired.quoteId]);await assert.rejects(geoAction(db,admin,{action:'submit',site:'s1',quoteId:expired.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:20}),e=>e.status===409);
+ const repriced=await geoAction(db,admin,{...input,platforms:[1]});await geoAction(db,admin,{action:'prices',unit:'0.30',enabled:true});await assert.rejects(geoAction(db,admin,{action:'submit',site:'s1',quoteId:repriced.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:20}),e=>e.status===409);
+ let response;const res={writeHead(){},end(text){response=JSON.parse(text)}};await geoQueryRoute(db,admin,{method:'GET',url:'/api/geo-query?site=s1&mode=live'},res,'/api/geo-query');assert(response.stats.hits===1);assert(response.rows.every(t=>!t.lease_token&&!t.result));assert.equal(response.settings.unit_cents,30);
+ await geoQueryRoute(db,admin,{method:'GET',url:'/api/geo-query?site=s1&mode=demo'},res,'/api/geo-query');assert.equal(response.stats.total,0);
+ const budgetQuote=await geoAction(db,admin,{...input,platforms:[1]});await db.query('INSERT INTO billing_client_settings(client_id,monthly_limit_cents) VALUES($1,0)',[site.client_id]);await assert.rejects(geoAction(db,admin,{action:'submit',site:'s1',quoteId:budgetQuote.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:30}),e=>e.status===402);await db.query('DELETE FROM billing_client_settings WHERE client_id=$1',[site.client_id]);
+ const insufficient=await geoAction(db,admin,{...input,platforms:[1]});await db.query('UPDATE billing_accounts SET balance_cents=held_cents WHERE id=$1',[account]);await assert.rejects(geoAction(db,admin,{action:'submit',site:'s1',quoteId:insufficient.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:30}),e=>e.status===402);await db.query('UPDATE billing_accounts SET balance_cents=10000 WHERE id=$1',[account]);
+ const retryQuote=await geoAction(db,admin,{...input,platforms:[1]});const retryTask=(await geoAction(db,admin,{action:'submit',site:'s1',quoteId:retryQuote.quoteId,requestKey:crypto.randomUUID(),confirmedAmountCents:30})).rows[0];const priorSubmits=submits;await drain({archive:async()=>{throw Error('persistent storage failure')}});assert.equal((await db.query('SELECT archive_state FROM geo_query_tasks WHERE id=$1',[retryTask.id])).rows[0].archive_state,'failed');await geoAction(db,admin,{action:'retry-archive',site:'s1',task:retryTask.id});await drain();assert.equal(submits,priorSubmits+1);assert.equal((await db.query('SELECT archive_state FROM geo_query_tasks WHERE id=$1',[retryTask.id])).rows[0].archive_state,'saved');
+ await geoAction(db,admin,{action:'prices',unit:'0.20',enabled:true,platforms:[1]});await assert.rejects(geoAction(db,admin,{...input,platforms:[2]}),e=>e.status===409);assert.equal((await geoAction(db,admin,{...input,platforms:[1]})).unitCents,20);
+ const fetchOriginal=globalThis.fetch;let path,fields;globalThis.fetch=async (u,o)=>{path=u;fields=Object.fromEntries(o.body);return {ok:true,json:async()=>({code:1,data:{request_id:'r123'}})}};
+ try{assert.equal(await geoProvider.submit({id:'local-task',platform:1,brand:'品牌',question:'问题'}),'r123');assert(path.endsWith('/api/geo/add_shoulu'));assert.deepEqual(fields,{api_key:'test-only-key',platform:'1',keywords:'品牌',question:'问题',third_id:'local-task'});
+ globalThis.fetch=async()=>({ok:true,json:async()=>({code:1,data:{request_id:'wrong',platform:1,status:1}})});await assert.rejects(geoProvider.poll({provider_id:'r123',platform:1}),/不匹配/);
+ }finally{globalThis.fetch=fetchOriginal}
+ for(const address of ['127.0.0.1','10.1.2.3','169.254.169.254','::1','::ffff:127.0.0.1','fc00::1'])assert.equal(publicAddress(address),false);assert.equal(publicAddress('8.8.8.8'),true);assert.equal(publicUrl('http://example.com/x'),null);assert.equal(publicUrl('https://secret@example.com/x'),null);
+ console.log('PASS GEO workflow: multi-platform quote/reservation, concurrent idempotency, charged miss, refunded failure, durable screenshot retry without resubmission, stale submit review, expired/repriced quote, mode isolation, permissions, actual provider request contract and screenshot address guards');
+}finally{await db.end();await maintenance.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1',[name]);await maintenance.query(`DROP DATABASE "${name}"`);await maintenance.end()}

@@ -1,3 +1,6 @@
+import {geoQueryRoute} from './geo-query.mjs';
+import { externalRoute } from './external-publishing.mjs';
+import { workspaceOverview } from './workspace.mjs';
 import { provisioningRoute,reconcileProvisioning } from './provisioning.mjs';
 import { websiteBuilderRoute } from './website-builder.mjs';
 import * as billing from './billing.mjs';
@@ -20,7 +23,7 @@ import { generateArticle,generateCover,generateInlineImages,aiMode,aiImageMode,c
 const db=database(),store=createStorage(dataRoot());await checkDatabase(db);await seed(db);
 let provisionReconciling=false;const provisionTimer=setInterval(async()=>{if(provisionReconciling)return;provisionReconciling=true;try{await reconcileProvisioning(db)}catch{console.error('Provisioner任务状态同步暂不可用')}finally{provisionReconciling=false}},5000);provisionTimer.unref();
 const iso=d=>d?.toISOString?.()||d;
-const publicFiles={'/website-builder-ui.js':'website-builder-ui.js','/website-builder.css':'website-builder.css','/provisioning-ui.js':'provisioning-ui.js','/billing-ui.js':'billing-ui.js','/':'index.html','/app.js':'app.js','/style.css':'style.css','/classic.css':'classic.css','/editor.js':'editor.js','/editor.css':'editor.css','/deployment-ui.js':'deployment-ui.js','/analytics-ui.js':'analytics-ui.js','/templates-ui.js':'templates-ui.js','/pilot-ui.js':'pilot-ui.js','/vendor/jodit.js':'../node_modules/jodit/es2021/jodit.fat.min.js','/vendor/jodit.css':'../node_modules/jodit/es2021/jodit.min.css'};
+const publicFiles={'/geo-query-ui.js':'geo-query-ui.js','/geo-query.css':'geo-query.css','/external-ui.js':'external-ui.js','/external.css':'external.css','/workspace-ui.js':'workspace-ui.js','/workspace.css':'workspace.css','/assets/workspace-hero.webp':'assets/workspace-hero.webp','/assets/workspace-features.webp':'assets/workspace-features.webp','/website-builder-ui.js':'website-builder-ui.js','/website-builder.css':'website-builder.css','/provisioning-ui.js':'provisioning-ui.js','/billing-ui.js':'billing-ui.js','/':'index.html','/app.js':'app.js','/style.css':'style.css','/classic.css':'classic.css','/editor.js':'editor.js','/editor.css':'editor.css','/deployment-ui.js':'deployment-ui.js','/analytics-ui.js':'analytics-ui.js','/templates-ui.js':'templates-ui.js','/pilot-ui.js':'pilot-ui.js','/vendor/jodit.js':'../node_modules/jodit/es2021/jodit.fat.min.js','/vendor/jodit.css':'../node_modules/jodit/es2021/jodit.min.css'};
 const rate=new Map();
 function billingDemo(){const text=aiMode()==='provider',image=aiImageMode()==='aliyun';if(text!==image)fail('请同时配置真实文字和图片模型，避免对混合演示内容收费',503);return !text}
 function rateLimit(key,max,ms){const now=Date.now(),r=rate.get(key);if(!r||r.until<now){rate.set(key,{count:1,until:now+ms});return}if(++r.count>max)fail('请求频率过高，请稍后再试',429);if(rate.size>5000)for(const [k,v]of rate)if(v.until<now)rate.delete(k)}
@@ -83,6 +86,9 @@ const server=http.createServer(async(req,res)=>{try{
  }
  if(path.startsWith('/api/')){
   const user=await auth(req);if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('请求来源不允许',403);
+  if(path.startsWith('/api/geo-query')){rateLimit('geoquery:'+user.id,30,60000);if(await geoQueryRoute(db,user,req,res,path))return}
+  if(path.startsWith('/api/external/')){rateLimit('external:'+user.id,120,60000);if(req.method==='POST')rateLimit('external-write:'+user.id,30,60000);if(await externalRoute(db,user,req,res,path))return}
+  if(path==='/api/workspace'){if(req.method!=='GET')fail('请使用GET',405);return json(res,await workspaceOverview(db,user))}
   if(path==='/api/state')return json(res,await stateFor(user));
   if(/^\/api\/sites\/[^/]+\/website(?:\/|$)/.test(path)){rateLimit('website:'+user.id,180,60000);if(req.method==='POST')rateLimit('website-write:'+user.id,30,60000);if(await websiteBuilderRoute(db,user,req,res,path))return}
   if(path.startsWith('/api/provisioning')){rateLimit('provisioning:'+user.id,600,60000);if(req.method==='POST')rateLimit('provisioning-write:'+user.id,10,60000);if(await provisioningRoute(db,user,req,res,path))return}

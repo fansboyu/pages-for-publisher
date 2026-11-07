@@ -1,6 +1,6 @@
-# AGENTS.md — 数告星发布中心 v1.3.9
+# AGENTS.md — 数告星发布中心 v1.4.0
 
-本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.3.9**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
+本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.4.0**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
 
 v1.3.5：角色页面权限见 `pilot/permissions.mjs`，员工账号状态迁移为 007，停用账号必须同时拒绝新登录并撤销旧会话。代理商状态响应不得包含 GEO Key。视频仅预留能力接口，不支持真实生成。标签后的 SSH 接入增量见 `docs/服务器自动接入与Provisioner.md`；不要将增量描述为原标签包含的功能。页面权限回归为 `node tests/permissions-ui.mjs`。
 
@@ -37,7 +37,7 @@ SSH 接入本地增量：迁移 009，API 为 `pilot/provisioning.mjs`，独立�
 - `agent/agent.mjs`：客户服务器部署 Agent；处理控制端任务、目录切换与 Caddy 配置。`agent/wait-caddy.mjs` 和 `deploy/site-agent-shared.service` 用于与客户已有 Caddy 共存。
 - `public/`：管理控制台前端。
 - `pilot/migrations/`：PostgreSQL 顺序迁移；结构变化必须新增迁移文件，不要只改建表代码。
-- `pilot/storage-adapter.mjs`：媒体和发布归档的存储抽象。图片存储由 `STORAGE_DRIVER` 控制，发布包/快照/模板 ZIP 可由 `ARCHIVE_STORAGE_DRIVER` 独立控制。
+- `storage-adapter.mjs`：媒体和发布归档的存储抽象。图片存储由 `STORAGE_DRIVER` 控制，发布包/快照/模板 ZIP 可由 `ARCHIVE_STORAGE_DRIVER` 独立控制。
 - `scripts/pilot-env.mjs`、`scripts/pilot-local.mjs`：本机环境加载和试点运行编排；不要让本地密钥进入浏览器或提交历史。
 
 ## AI 图文创作链路
@@ -75,3 +75,16 @@ DeepSeek 和百炼配置必须彼此独立。至少需要 `AI_TEXT_BASE_URL`、`
 - 本地备份不等于异地备份。生产应将备份复制到独立存储并定期在隔离环境验证恢复。
 
 官网协议v2本地增量：pilot/website-protocol.mjs定义规则和最终产物检查，v1/v1.1兼容；AI建站首页文章区和列表详情共用website-renderer，文章路径沿用绑定模板。文档docs/官网协议-v2.md，验证node tests/website-protocol.mjs。不新增迁移、容器或版本标签。
+
+## v1.4.0维护入口
+
+- 版本总览：docs/v1.4.0-系统功能详细介绍.md。
+- 前端页面与接口调用：docs/v1.4.0-前端UI与API调用说明.md。
+- 后端架构、API契约及部署：docs/v1.4.0-后端架构与API参考.md。
+- 连续对话：迁移012，website-conversation.mjs；草稿修改、预览、应用和发布独立。
+- 工作台：workspace.mjs只读聚合权限内的数据；不能将演示/本地运行证明为云端验收。
+- 外部发布：迁移013/014；external-worker.mjs复用媒体投稿与GEO调度。真实目录已读通，真实付费投稿未联合验收。媒体筛选只作用于供应商当前页，不能宣称全库筛选。
+- GEO：迁移015/016/017，geo-workflow.mjs管理报价、单平台账单、租约与独立截图归档；geo-provider.mjs适配小青蛙。默认GEO_QUERY_MODE=demo；每平台20分初始单价，但正式计费默认关闭。客户原预算保留。截图公开读取，不等于公开查询记录。Kimi正式查询暂未验收。
+- 提交超时不得重发或自动退款；截图失败只重试归档。新配置项同步三个env示例。专项npm run test:geo、npm run test:external、npm run test:website及主发布回归。
+- 生产external-worker须挂载platform-data:/data（DATA_ROOT=/data），与API共享本地截图；OSS使用相同媒体配置。
+- 不提交.env、.env.local、运行数据、备份、截图凭据或本地测试报告。发布前检查版本、锁文件、CHANGELOG和标签一致。生产部署需另行授权并保留既有.env。

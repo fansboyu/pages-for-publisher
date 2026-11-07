@@ -21,3 +21,7 @@ console.log('PASS 代理商隐藏未授权菜单并阻止页面跳转，无网�
 
 vm.runInContext(await readFile(new URL('../public/provisioning-ui.js',import.meta.url),'utf8'),context);
 vm.runInContext("data.permissions.pages.push('provisioning');provisioningData={available:true,installAvailable:false,controlReady:false,jobs:[]};view='provisioning';render()",context);assert(app.innerHTML.includes('provision-form'));assert(app.innerHTML.includes('核对指纹'));
+
+vm.runInContext(await readFile(new URL('../public/workspace-ui.js',import.meta.url),'utf8'),context);
+vm.runInContext("data.permissions.pages.push('dashboard');data.knowledge=[];data.builds=[];data.deployments=[];view='dashboard';render()",context);
+assert(app.innerHTML.includes('workspace-hero'));assert(app.innerHTML.includes('暂无发布记录'));assert(!app.innerHTML.includes('4,862'));console.log('PASS 工作台真实空状态与菜单入口渲染');

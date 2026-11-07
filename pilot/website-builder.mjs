@@ -1,3 +1,4 @@
+import { conversationContext,websiteChanges,scopedWebsite } from './website-conversation.mjs';
 import { transaction } from './db.mjs';
 import { id,fail,body,json,siteFor,siteView,audit,accountScope } from './common.mjs';
 import * as billing from './billing.mjs';
@@ -10,20 +11,23 @@ const jobView=row=>({id:row.id,status:row.status==='review'&&['released','refund
 const isDemo=input=>aiMode()==='demo'&&(!input.imageCount||aiImageMode()==='demo');
 function checkModels(input){if(!isDemo(input)&&(aiMode()!=='provider'||input.imageCount&&aiImageMode()!=='aliyun'))fail('请先配置所需的文字和图片模型；或取消首页配图',503)}
 async function requireIdle(c,site){if((await c.query("SELECT 1 FROM website_builder_jobs j JOIN billing_orders o ON o.id=j.order_id WHERE j.site_id=$1 AND (j.status IN ('queued','running') OR j.status='review' AND o.status IN ('held','review'))",[site])).rowCount)fail('该网站已有建站任务或待核查账单，请先处理',409)}
-async function recordDraft(c,site,spec,instruction,actor,revision){
+async function recordDraft(c,site,spec,instruction,actor,revision,jobId=null,target='all'){
+ const before=(await c.query('SELECT spec FROM website_builder_drafts WHERE site_id=$1',[site])).rows[0]?.spec,changes=websiteChanges(before,spec);
  const next=revision+1;await c.query('UPDATE website_builder_drafts SET spec=$1,revision=$2,updated_at=now() WHERE site_id=$3',[spec,next,site]);
- await c.query('INSERT INTO website_builder_versions(site_id,revision,spec,instruction,actor) VALUES($1,$2,$3,$4,$5)',[site,next,spec,instruction,actor]);return next;
+ await c.query('INSERT INTO website_builder_versions(site_id,revision,spec,instruction,actor) VALUES($1,$2,$3,$4,$5)',[site,next,spec,instruction,actor]);
+ await c.query('INSERT INTO website_builder_messages(site_id,job_id,role,content,target,base_revision,result_revision,changes,actor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[site,jobId,'assistant',changes.length?instruction+'；已保存草稿 v'+next+'：'+changes.map(x=>x.field).join('、'):instruction+'；已保存草稿 v'+next+'，配置未变化',target,revision,next,JSON.stringify(changes),actor]);return next;
 }
 
 export async function websiteBuilderRoute(db,user,req,res,path){
- const match=path.match(/^\/api\/sites\/([^/]+)\/website(?:\/(quote|jobs|draft|apply|preview)(?:\/(.*))?)?$/);if(!match)return false;
+ const match=path.match(/^\/api\/sites\/([^/]+)\/website(?:\/(quote|jobs|draft|apply|preview|undo)(?:\/(.*))?)?$/);if(!match)return false;
  const site=await siteFor(db,user,match[1]),action=match[2];
  if(!action&&req.method==='GET'){
   const draft=(await db.query('SELECT * FROM website_builder_drafts WHERE site_id=$1',[site.id])).rows[0];
   const jobs=(await db.query('SELECT j.id,j.status,j.error,j.created_at,j.finished_at,o.status order_status FROM website_builder_jobs j JOIN billing_orders o ON o.id=j.order_id WHERE j.site_id=$1 ORDER BY j.created_at DESC LIMIT 10',[site.id])).rows;
   const versions=(await db.query('SELECT revision,instruction,actor,created_at FROM website_builder_versions WHERE site_id=$1 ORDER BY revision DESC LIMIT 10',[site.id])).rows;
   const count=(await db.query('SELECT count(*) count FROM client_knowledge WHERE client_id=$1',[site.client_id])).rows[0];
-  json(res,{draft:draft?.spec?{spec:draft.spec,revision:draft.revision,appliedRevision:draft.applied_revision,updatedAt:draft.updated_at}:null,jobs:jobs.map(jobView),versions,siteRevision:Number(site.revision),themes:websiteThemes,knowledgeCount:Number(count.count),textMode:aiMode(),imageMode:aiImageMode()});return true;
+  const messages=(await db.query('SELECT m.*,j.status,j.error,o.status order_status FROM website_builder_messages m LEFT JOIN website_builder_jobs j ON j.id=m.job_id LEFT JOIN billing_orders o ON o.id=j.order_id WHERE m.site_id=$1 ORDER BY m.id DESC LIMIT 60',[site.id])).rows.reverse().map(m=>({...m,status:m.status==='review'&&['released','refunded'].includes(m.order_status)?'failed':m.status||'succeeded'}));
+  json(res,{messages,draft:draft?.spec?{spec:draft.spec,revision:draft.revision,appliedRevision:draft.applied_revision,updatedAt:draft.updated_at}:null,jobs:jobs.map(jobView),versions,siteRevision:Number(site.revision),themes:websiteThemes,knowledgeCount:Number(count.count),textMode:aiMode(),imageMode:aiImageMode()});return true;
  }
  if(action==='preview'&&req.method==='GET'){
   const query=new URL(req.url,'http://localhost').searchParams,revision=Number(query.get('revision')||0);if(!Number.isSafeInteger(revision)||revision<0)fail('草稿版本无效');
@@ -43,10 +47,14 @@ export async function websiteBuilderRoute(db,user,req,res,path){
   const input=websiteInput(b);checkModels(input);const jobId=id('wb');
   const reservation=await billing.reserve(db,user,site.id,{...input,requestKey:b.requestKey,quoteVersion:b.quoteVersion,quotedAmountCents:b.quotedAmountCents},isDemo(input),async(c,orderId)=>{
    const locked=await siteFor(c,user,site.id,true);await requireIdle(c,site.id);
-   await c.query('INSERT INTO website_builder_drafts(site_id) VALUES($1) ON CONFLICT DO NOTHING',[site.id]);const draft=(await c.query('SELECT revision FROM website_builder_drafts WHERE site_id=$1 FOR UPDATE',[site.id])).rows[0];
+   await c.query('INSERT INTO website_builder_drafts(site_id) VALUES($1) ON CONFLICT DO NOTHING',[site.id]);const draft=(await c.query('SELECT revision,spec FROM website_builder_drafts WHERE site_id=$1 FOR UPDATE',[site.id])).rows[0];
+   if(!draft.spec&&!locked.content?.builder&&input.target!=='all')fail('首次生成请选择整站');
    if(draft.revision!==input.revision)fail('草稿已被其他操作更新，请刷新后重试',409);
-   await c.query('INSERT INTO website_builder_jobs(id,site_id,actor_id,order_id,input,base_revision,site_revision) VALUES($1,$2,$3,$4,$5,$6,$7)',[jobId,site.id,user.id,orderId,input,draft.revision,locked.revision]);await audit(c,site.id,user.name,'提交AI智能建站任务');
+   await c.query('INSERT INTO website_builder_jobs(id,site_id,actor_id,order_id,input,base_revision,site_revision) VALUES($1,$2,$3,$4,$5,$6,$7)',[jobId,site.id,user.id,orderId,input,draft.revision,locked.revision]);await c.query('INSERT INTO website_builder_messages(site_id,job_id,role,content,target,base_revision,actor) VALUES($1,$2,$3,$4,$5,$6,$7)',[site.id,jobId,'user',input.instruction,input.target,input.revision,user.name]);await audit(c,site.id,user.name,'提交AI智能建站任务');
   });json(res,reservation.replay||{jobId,status:'queued',amountCents:Number(reservation.order.amount_cents)},202);return true;
+ }
+ if(action==='undo'){
+  const result=await transaction(db,async c=>{await siteFor(c,user,site.id,true);await requireIdle(c,site.id);const draft=(await c.query('SELECT * FROM website_builder_drafts WHERE site_id=$1 FOR UPDATE',[site.id])).rows[0];if(!draft?.spec||draft.revision!==Number(b.revision))fail('草稿已更新，请刷新后重试',409);const previous=(await c.query('SELECT spec FROM website_builder_versions WHERE site_id=$1 AND revision<$2 ORDER BY revision DESC LIMIT 1',[site.id,draft.revision])).rows[0];if(!previous)fail('没有可撤销的上一版草稿');const revision=await recordDraft(c,site.id,normalizeWebsiteSpec(previous.spec),'撤销上一步，恢复草稿v'+(draft.revision-1),user.name,draft.revision);await audit(c,site.id,user.name,'撤销建站修改，生成草稿v'+revision);return {revision};});json(res,result);return true;
  }
  if(action==='draft'){
   const result=await transaction(db,async c=>{await siteFor(c,user,site.id,true);await requireIdle(c,site.id);const draft=(await c.query('SELECT * FROM website_builder_drafts WHERE site_id=$1 FOR UPDATE',[site.id])).rows[0];if(!draft?.spec)fail('请先生成草稿');if(Number(b.revision)!==draft.revision)fail('草稿已更新，请刷新后重试',409);
@@ -71,13 +79,13 @@ export async function processWebsiteJob(db,store){
   const actor=(await db.query('SELECT * FROM users WHERE id=$1',[job.actor_id])).rows[0];if(!actor||actor.disabled)fail('任务发起账号已停用',403);user=accountScope(actor);
   const site=await siteFor(db,user,job.site_id),draft=(await db.query('SELECT * FROM website_builder_drafts WHERE site_id=$1',[site.id])).rows[0];if(draft.revision!==job.base_revision||Number(site.revision)!==Number(job.site_revision))fail('生成期间网站或草稿发生变更，请重新生成',409);
   const knowledge=(await db.query('SELECT category,title,content,terms FROM client_knowledge WHERE client_id=$1 ORDER BY category,title LIMIT 20',[site.client_id])).rows;
-  const generated=await generateWebsite(site,job.input,draft.spec||site.content?.builder,knowledge);let image;
+  const generated=await generateWebsite(site,job.input,draft.spec||site.content?.builder,knowledge,await conversationContext(db,site.id));generated.spec=scopedWebsite(draft.spec||site.content?.builder,generated.spec,job.input.target||'all');let image;
   if(job.input.imageCount){const cover=await generateWebsiteHero(generated.spec,site,job.input);image=await store.image(site.id,{...cover,name:'AI建站首页配图.webp'});generated.spec.hero.imageUrl=image.url}
   const spec=normalizeWebsiteSpec(generated.spec);
   await transaction(db,async c=>{const currentActor=(await c.query('SELECT * FROM users WHERE id=$1',[job.actor_id])).rows[0];if(!currentActor||currentActor.disabled)fail('账号权限已变更',403);const locked=await siteFor(c,accountScope(currentActor),site.id,true),current=(await c.query('SELECT * FROM website_builder_drafts WHERE site_id=$1 FOR UPDATE',[site.id])).rows[0],running=(await c.query('SELECT status FROM website_builder_jobs WHERE id=$1 FOR UPDATE',[job.id])).rows[0];
    if(running.status!=='running'||current.revision!==job.base_revision||Number(locked.revision)!==Number(job.site_revision))fail('任务状态或内容已变化，请刷新后核查',409);
    if(image)await c.query('INSERT INTO media(id,site_id,name,object_key,url,size,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',[image.id,site.id,image.name,image.key,image.url,image.size,image]);
-   const revision=await recordDraft(c,site.id,spec,job.input.instruction,user.name,current.revision);await billing.settle(c,job.order_id,user,{jobId:job.id,draftRevision:revision,mode:generated.mode},false,'AI智能建站草稿生成完成');await c.query("UPDATE website_builder_jobs SET status='succeeded',finished_at=now(),lease_until=NULL,error=NULL WHERE id=$1",[job.id]);await audit(c,site.id,user.name,'AI智能建站生成草稿 v'+revision);
+   const revision=await recordDraft(c,site.id,spec,job.input.instruction,user.name,current.revision,job.id,job.input.target||'all');await billing.settle(c,job.order_id,user,{jobId:job.id,draftRevision:revision,mode:generated.mode},false,'AI智能建站草稿生成完成');await c.query("UPDATE website_builder_jobs SET status='succeeded',finished_at=now(),lease_until=NULL,error=NULL WHERE id=$1",[job.id]);await audit(c,site.id,user.name,'AI智能建站生成草稿 v'+revision);
   });
  }catch(error){
   const state=(await db.query('SELECT status FROM website_builder_jobs WHERE id=$1',[job.id])).rows[0];if(state?.status!=='review'){
