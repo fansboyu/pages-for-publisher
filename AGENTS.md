@@ -1,6 +1,6 @@
-# AGENTS.md — 数告星发布中心 v1.4.0
+# AGENTS.md — 数告星发布中心 v1.5.0
 
-本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.4.0**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
+本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.5.0**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
 
 v1.3.5：角色页面权限见 `pilot/permissions.mjs`，员工账号状态迁移为 007，停用账号必须同时拒绝新登录并撤销旧会话。代理商状态响应不得包含 GEO Key。视频仅预留能力接口，不支持真实生成。标签后的 SSH 接入增量见 `docs/服务器自动接入与Provisioner.md`；不要将增量描述为原标签包含的功能。页面权限回归为 `node tests/permissions-ui.mjs`。
 
@@ -88,3 +88,9 @@ DeepSeek 和百炼配置必须彼此独立。至少需要 `AI_TEXT_BASE_URL`、`
 - 提交超时不得重发或自动退款；截图失败只重试归档。新配置项同步三个env示例。专项npm run test:geo、npm run test:external、npm run test:website及主发布回归。
 - 生产external-worker须挂载platform-data:/data（DATA_ROOT=/data），与API共享本地截图；OSS使用相同媒体配置。
 - 不提交.env、.env.local、运行数据、备份、截图凭据或本地测试报告。发布前检查版本、锁文件、CHANGELOG和标签一致。生产部署需另行授权并保留既有.env。
+
+## v1.5.0：四类 Worker
+
+详见 docs/四类Worker拆分与本地验证.md。迁移018新增ai_article_jobs；图文由API报价/预占并持久化排队，AI Worker执行。文章、媒体记录、结算、发布outbox和任务成功同事务。运行中租约过期转review，禁止自动重发付费生成。API与AI Worker必须使用相同模型模式。新增GET /api/sites/:site/ai-articles/:jobId，权限仍按站点归属校验。
+
+worker.mjs只处理构建/发布与运维告警；ai-worker.mjs处理图文及建站；media-worker.mjs处理媒体；geo-worker.mjs处理查询及截图。external-worker.mjs仅为媒体兼容入口，不再消费GEO。生产启用external profile启动媒体和GEO；升级前停止旧combined worker并等待正在执行的付费请求结束。不要同时运行旧版本的混合Worker。npm run test:workers验证隔离、幂等、租约和四进程启动。

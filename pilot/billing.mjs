@@ -24,16 +24,16 @@ async function ledger(c,account,order,kind,amount,actor,note,requestKey=null){
  const row=(await c.query('SELECT * FROM billing_accounts WHERE id=$1',[account])).rows[0];
  await c.query('INSERT INTO billing_ledger(account_id,order_id,kind,amount_cents,balance_cents,held_cents,actor,note,request_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[account,order,kind,amount,row.balance_cents,row.held_cents,actor,note,requestKey]);
 }
-export async function reserve(db,user,siteId,input,demo,onReserve){
+export async function reserve(db,user,siteId,input,demo,onReserve,service='website'){
  key(input.requestKey);
  const fingerprint=hash(JSON.stringify(Object.fromEntries(Object.entries(input).filter(([k])=>!['requestKey','quoteVersion','quotedAmountCents'].includes(k)).sort(([a],[b])=>a.localeCompare(b)))));
  return transaction(db,async c=>{
   // Serialise a site's duplicate requests, including concurrent first submissions.
   await c.query('SELECT pg_advisory_xact_lock(hashtext($1))',['billing:'+siteId]);
   if(onReserve)await siteFor(c,user,siteId,true);
-  const q=await quote(c,user,siteId,input,demo,onReserve?'website':'article');
+  const q=await quote(c,user,siteId,input,demo,onReserve?service:'article');
   const old=(await c.query('SELECT * FROM billing_orders WHERE site_id=$1 AND request_key=$2',[siteId,input.requestKey])).rows[0];
-  if(old){if(old.fingerprint!==fingerprint)fail('请求编号已用于不同参数',409);if(old.status==='charged')return {replay:old.result,order:old};if(old.status==='refunded')fail('原生成已退款，请使用新的请求编号重新报价',409);throw Object.assign(Error(old.status==='released'?'上次任务失败，请重新报价后提交新任务':'任务仍处理中或等待对账，请勿重复生成'),{status:409,billingStatus:old.status,billingOrderId:old.id})}
+  if(old){if(old.fingerprint!==fingerprint)fail('请求编号已用于不同参数',409);if(onReserve&&service==='article'){const job=(await c.query('SELECT id,status FROM ai_article_jobs WHERE order_id=$1',[old.id])).rows[0];if(job)return {replay:{jobId:job.id,status:job.status},order:old};}if(old.status==='charged')return {replay:old.result,order:old};if(old.status==='refunded')fail('原生成已退款，请使用新的请求编号重新报价',409);throw Object.assign(Error(old.status==='released'?'上次任务失败，请重新报价后提交新任务':'任务仍处理中或等待对账，请勿重复生成'),{status:409,billingStatus:old.status,billingOrderId:old.id})}
   if(!demo&&!q.configured)fail('请先由直营管理员配置并启用图文价格',503);
   if(!demo&&Number(input.quoteVersion)!==q.price.version)fail('价格已变化，请重新报价',409);
   if(!demo&&Number(input.quotedAmountCents)!==q.amountCents)fail('报价金额已变化，请重新确认',409);
