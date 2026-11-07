@@ -1,6 +1,6 @@
 {
   "name": "website-control-local",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -34,7 +34,8 @@
     "worker:ai": "node pilot/ai-worker.mjs",
     "worker:media": "node pilot/media-worker.mjs",
     "worker:geo": "node pilot/geo-worker.mjs",
-    "test:workers": "node tests/worker-split.mjs"
+    "test:workers": "node tests/worker-split.mjs",
+    "test:module-ui": "node tests/module-ui.mjs"
   },
   "engines": {
     "node": ">=24"

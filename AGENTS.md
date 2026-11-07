@@ -1,6 +1,6 @@
-# AGENTS.md — 数告星发布中心 v1.5.0
+# AGENTS.md — 数告星发布中心 v1.5.1
 
-本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.5.0**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
+本文件为后续维护者提供仓库地图和改造约束。当前版本为 **v1.5.1**。提交变更前阅读本文及相关模块文档；不要把本文件中的示例或流程描述当作线上服务当前状态的证明。
 
 v1.3.5：角色页面权限见 `pilot/permissions.mjs`，员工账号状态迁移为 007，停用账号必须同时拒绝新登录并撤销旧会话。代理商状态响应不得包含 GEO Key。视频仅预留能力接口，不支持真实生成。标签后的 SSH 接入增量见 `docs/服务器自动接入与Provisioner.md`；不要将增量描述为原标签包含的功能。页面权限回归为 `node tests/permissions-ui.mjs`。
 
@@ -94,3 +94,9 @@ DeepSeek 和百炼配置必须彼此独立。至少需要 `AI_TEXT_BASE_URL`、`
 详见 docs/四类Worker拆分与本地验证.md。迁移018新增ai_article_jobs；图文由API报价/预占并持久化排队，AI Worker执行。文章、媒体记录、结算、发布outbox和任务成功同事务。运行中租约过期转review，禁止自动重发付费生成。API与AI Worker必须使用相同模型模式。新增GET /api/sites/:site/ai-articles/:jobId，权限仍按站点归属校验。
 
 worker.mjs只处理构建/发布与运维告警；ai-worker.mjs处理图文及建站；media-worker.mjs处理媒体；geo-worker.mjs处理查询及截图。external-worker.mjs仅为媒体兼容入口，不再消费GEO。生产启用external profile启动媒体和GEO；升级前停止旧combined worker并等待正在执行的付费请求结束。不要同时运行旧版本的混合Worker。npm run test:workers验证隔离、幂等、租约和四进程启动。
+
+## v1.5.1：全模块工作台风格
+
+public/module-ui.js 和 module-ui.css 为展示层，app.js 在页面HTML建立后、原有业务事件绑定前调用增强。移动节点时不克隆表单，保留ID/name和原处理器；不得把草图示例数据带入真实页面。新增静态资源路由只供前端加载，不改变业务API。账单汇总只统计当前账号可见账户，平台配置按原权限返回。金额、服务器页面的页签不删除隐藏表单。列表分页只作用于当前已加载记录，不能描述为全库搜索。AI进度只读取queued/running/succeeded/failed/review，不虚构模型子阶段百分比。
+
+专项 npm run test:module-ui 使用隔离PostgreSQL、本地API和AI Worker、浏览器，测试20模块、移动端、保存、权限、报价和免费演示图文。需要开发环境提供Playwright，可由PLAYWRIGHT_MODULE_PATH指定其index.mjs；不得因此将浏览器依赖安装到生产镜像。说明见 docs/全模块UI统一与本地验收.md。本地预览不代表生产已更新。
